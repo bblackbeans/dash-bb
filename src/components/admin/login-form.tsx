@@ -33,7 +33,7 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-4">
+    <form onSubmit={onSubmit} className="space-y-4" autoComplete="off">
       <div>
         <LabelWithHelp
           htmlFor="email"
@@ -46,8 +46,8 @@ export function LoginForm() {
           name="email"
           type="email"
           required
-          autoComplete="username"
-          defaultValue="admin@blackbeans.com.br"
+          autoComplete="off"
+          placeholder="nome@blackbeans.com.br"
         />
       </div>
       <div>
@@ -61,8 +61,7 @@ export function LoginForm() {
           id="password"
           name="password"
           required
-          autoComplete="current-password"
-          defaultValue="blackbeans123"
+          autoComplete="new-password"
         />
       </div>
       {error ? (

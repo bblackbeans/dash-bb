@@ -2,6 +2,7 @@
 
 import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
+import bcrypt from "bcryptjs";
 import fs from "fs/promises";
 import path from "path";
 import { authOptions } from "@/lib/auth";
@@ -514,6 +515,88 @@ export async function saveBigQuerySourceAction(input: {
   });
   revalidatePath(`/admin/clients/${input.clientSlug}/dashboards/${input.dashSlug}`);
   revalidatePath(`/p/${input.clientSlug}/${input.dashSlug}`);
+  return { ok: true };
+}
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export async function createUserAction(input: {
+  name: string;
+  email: string;
+  password: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireSession();
+  const name = input.name.trim();
+  const email = input.email.trim().toLowerCase();
+  const password = input.password;
+  if (!name) return { ok: false, error: "Informe o nome." };
+  if (!EMAIL.test(email)) return { ok: false, error: "E-mail inválido." };
+  if (password.length < 8) {
+    return { ok: false, error: "A senha precisa ter pelo menos 8 caracteres." };
+  }
+  try {
+    await prisma.user.create({
+      data: {
+        name,
+        email,
+        passwordHash: await bcrypt.hash(password, 10),
+      },
+    });
+  } catch {
+    return { ok: false, error: "Já existe um usuário com esse e-mail." };
+  }
+  revalidatePath("/admin/users");
+  return { ok: true };
+}
+
+export async function updateUserAction(input: {
+  id: string;
+  name: string;
+  email: string;
+  password: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireSession();
+  const name = input.name.trim();
+  const email = input.email.trim().toLowerCase();
+  const password = input.password;
+  if (!input.id || !name) return { ok: false, error: "Informe o nome." };
+  if (!EMAIL.test(email)) return { ok: false, error: "E-mail inválido." };
+  if (password && password.length < 8) {
+    return { ok: false, error: "A senha precisa ter pelo menos 8 caracteres." };
+  }
+  const existing = await prisma.user.findUnique({ where: { id: input.id } });
+  if (!existing) return { ok: false, error: "Usuário não encontrado." };
+  try {
+    await prisma.user.update({
+      where: { id: input.id },
+      data: {
+        name,
+        email,
+        ...(password ? { passwordHash: await bcrypt.hash(password, 10) } : {}),
+      },
+    });
+  } catch {
+    return { ok: false, error: "Já existe um usuário com esse e-mail." };
+  }
+  revalidatePath("/admin/users");
+  return { ok: true };
+}
+
+export async function deleteUserAction(input: {
+  id: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const currentId = (session.user as { id?: string }).id;
+  if (!input.id) return { ok: false, error: "Usuário inválido." };
+  if (input.id === currentId) {
+    return { ok: false, error: "Você não pode excluir a própria conta." };
+  }
+  const count = await prisma.user.count();
+  if (count <= 1) {
+    return { ok: false, error: "Precisa existir pelo menos um usuário." };
+  }
+  await prisma.user.delete({ where: { id: input.id } });
+  revalidatePath("/admin/users");
   return { ok: true };
 }
 

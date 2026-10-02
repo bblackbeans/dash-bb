@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { FolderKanban } from "lucide-react";
+import { FolderKanban, Users } from "lucide-react";
 import { LogoutButton } from "@/components/admin/logout-button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { authOptions } from "@/lib/auth";
@@ -36,6 +36,15 @@ export default async function AdminLayout({
                 >
                   <FolderKanban className="h-4 w-4" aria-hidden />
                   Clientes
+                </Link>
+              </Tooltip>
+              <Tooltip content="Contas que entram neste painel">
+                <Link
+                  href="/admin/users"
+                  className="inline-flex cursor-pointer items-center gap-2 rounded-[var(--bb-radius)] px-3 py-2 text-[var(--bb-gray)] hover:bg-white/5 hover:text-[var(--bb-cream)]"
+                >
+                  <Users className="h-4 w-4" aria-hidden />
+                  Usuários
                 </Link>
               </Tooltip>
             </nav>

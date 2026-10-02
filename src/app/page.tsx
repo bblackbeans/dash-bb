@@ -12,18 +12,12 @@ export default function HomePage() {
           BBDash
         </h1>
         <p className="mt-4 max-w-xl text-[var(--bb-gray)]">
-          Plataforma própria de dashboards para clientes BlackBeans — sem
-          Looker Studio.
+          Crie e publique os dashboards dos clientes da BlackBeans.
         </p>
       </div>
       <div className="flex flex-wrap gap-3">
         <Link href="/login">
           <Button size="lg">Entrar no Admin</Button>
-        </Link>
-        <Link href="/p/johnson/trafego">
-          <Button size="lg" variant="secondary">
-            Ver demo pública
-          </Button>
         </Link>
       </div>
     </main>
