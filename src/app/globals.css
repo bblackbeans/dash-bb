@@ -1,0 +1,155 @@
+@import "tailwindcss";
+
+:root {
+  --bb-accent: #da9330;
+  --bb-black: #141312;
+  --bb-gray: #b1b0b1;
+  --bb-cream: #f4f0ed;
+  --bb-surface: #1c1b1a;
+  --bb-border: color-mix(in srgb, var(--bb-gray) 35%, transparent);
+  --bb-radius: 0.5rem;
+  --bb-radius-xl: 0.75rem;
+  --bb-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+  --background: var(--bb-black);
+  --foreground: var(--bb-cream);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-bb-accent: var(--bb-accent);
+  --color-bb-black: var(--bb-black);
+  --color-bb-gray: var(--bb-gray);
+  --color-bb-cream: var(--bb-cream);
+  --color-bb-surface: var(--bb-surface);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  color-scheme: dark;
+  scrollbar-color: #6e6a66 #121110;
+  scrollbar-width: thin;
+}
+
+body {
+  background: var(--bb-black);
+  color: var(--bb-cream);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #121110;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #6e6a66;
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--bb-accent);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+button:not(:disabled),
+[role="button"],
+summary,
+label,
+select,
+input[type="checkbox"],
+input[type="radio"],
+input[type="file"] {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+input,
+select,
+button,
+textarea {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--bb-accent);
+  outline-offset: 2px;
+}
+
+body:has(.bb-dash-page):not([data-editor="open"]) .bb-admin-bar,
+body:has(.bb-dash-page):not([data-editor="open"]) main.bb-admin-main {
+  max-width: 1240px;
+}
+
+body[data-studio="open"] .bb-admin-bar,
+body[data-studio="open"] main.bb-admin-main {
+  padding-left: 21rem;
+}
+
+html:has(body[data-editor="open"]),
+body[data-editor="open"] {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+body[data-editor="open"] .bb-admin-shell {
+  display: flex;
+  height: 100dvh;
+  max-height: 100dvh;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+body[data-editor="open"] main.bb-admin-main {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  padding-top: 1rem;
+  padding-bottom: 0.75rem;
+}
+
+body[data-editor="open"] .bb-dash-page {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+body[data-editor="open"] .bb-dash-page > :first-child {
+  flex-shrink: 0;
+  margin-bottom: 0;
+}
+
+body[data-editor="open"] .bb-dash-builder {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+body[data-editor="open"] .bb-dash-canvas {
+  position: absolute;
+  inset: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}

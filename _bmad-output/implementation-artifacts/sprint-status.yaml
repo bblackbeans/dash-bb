@@ -1,0 +1,33 @@
+# generated: 2026-07-20
+project: bbdash
+status: completed
+last_updated: 2026-07-20
+
+epics:
+  - id: E1
+    title: Foundation
+    status: done
+  - id: E2
+    title: Auth
+    status: done
+  - id: E3
+    title: Clients
+    status: done
+  - id: E4
+    title: Dashboards
+    status: done
+  - id: E5
+    title: Filters
+    status: done
+  - id: E6
+    title: Public Share
+    status: done
+  - id: E7
+    title: UX Polish & Dashboard Wizard
+    status: done
+    stories:
+      - { id: "7.1", title: Design system primitives, status: done }
+      - { id: "7.2", title: Shell Login listas, status: done }
+      - { id: "7.3", title: Wizard novo dashboard, status: done }
+      - { id: "7.4", title: Teaser GA BigQuery, status: done }
+      - { id: "7.5", title: Migrar telas DS tooltips, status: done }

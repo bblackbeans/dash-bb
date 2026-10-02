@@ -1,0 +1,66 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now())
+  clients      Client[]
+}
+
+model Client {
+  id          String      @id @default(cuid())
+  name        String
+  slug        String      @unique
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  createdById String?
+  createdBy   User?       @relation(fields: [createdById], references: [id])
+  dashboards  Dashboard[]
+}
+
+model Dashboard {
+  id          String   @id @default(cuid())
+  clientId    String
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  title       String
+  slug        String
+  description String?
+  dataSource  String   @default("mock")
+  isPublic    Boolean  @default(false)
+  mockPath    String   @default("johnson-traffic.json")
+  sourceJson  String   @default("{}")
+  themeJson   String   @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  widgets     Widget[]
+
+  @@unique([clientId, slug])
+}
+
+model Widget {
+  id          String    @id @default(cuid())
+  dashboardId String
+  dashboard   Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  type        String
+  title       String
+  configJson  String
+  sortOrder   Int       @default(0)
+}
+
+model DashboardTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  themeJson   String
+  widgetsJson String
+  createdAt   DateTime @default(now())
+}
