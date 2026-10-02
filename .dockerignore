@@ -1,0 +1,15 @@
+node_modules
+.next
+.git
+.env
+.env.*
+!.env.example
+secrets
+prisma/*.db
+prisma/*.db-journal
+*.md
+_bmad
+_bmad-output
+.agents
+.claude
+.windsurf
