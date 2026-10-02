@@ -4,14 +4,13 @@ Plataforma própria de dashboards da BlackBeans (MVP).
 
 ## Stack
 
-Next.js 15 · NextAuth · Prisma/SQLite · Recharts · Tailwind · BMad Method
+Next.js 15 · NextAuth · Prisma/PostgreSQL · Recharts · Tailwind · BMad Method
 
 ## Setup
 
 ```bash
 cp .env.example .env
-# Ajuste DATABASE_URL para caminho absoluto se o SQLite não abrir, ex.:
-# DATABASE_URL="file:/caminho/completo/bbdash/prisma/dev.db"
+# DATABASE_URL precisa ser uma URL de Postgres, local ou do EasyPanel.
 
 npm install
 npx prisma db push
