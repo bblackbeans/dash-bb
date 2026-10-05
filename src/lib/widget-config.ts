@@ -35,6 +35,7 @@ export type WidgetConfig = {
   dimension?: string;
   format?: "currency";
   columns?: string[];
+  columnLabels?: Record<string, string>;
   stages?: string[];
   numerator?: string;
   denominator?: string;
@@ -52,11 +53,24 @@ export type WidgetConfig = {
 const FIELD_LABELS: Record<string, string> = {
   date: "Data",
   campaign: "Campanha",
+  campaign_name: "Campanha",
+  campaign_id: "ID da campanha",
+  campaign_group_name: "Grupo de campanhas",
+  campaign_detail_name: "Campanha",
+  campaign_group_detail_name: "Grupo de campanhas",
   utmSource: "Origem (UTM)",
   utmMedium: "Mídia (UTM)",
   utmCampaign: "Campanha UTM",
   utmContent: "Conteúdo UTM",
   adset: "Conjunto de anúncios",
+  adset_name: "Conjunto de anúncios",
+  adset_id: "ID do conjunto",
+  adgroup_name: "Grupo de anúncios",
+  ad_name: "Anúncio",
+  ad_id: "ID do anúncio",
+  creative_name: "Criativo",
+  searchtermview_searchterm: "Termo de pesquisa",
+  account_name: "Conta",
   ageRange: "Faixa etária",
   leads: "Leads",
   qualified: "Qualificados",
@@ -109,6 +123,18 @@ function cleanKeys(value: unknown, limit: number): string[] | undefined {
     .filter((item): item is string => Boolean(item))
     .slice(0, limit);
   return keys.length ? keys : undefined;
+}
+
+function cleanLabels(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const labels: Record<string, string> = {};
+  for (const [key, label] of Object.entries(value as Record<string, unknown>)) {
+    const clean = cleanKey(key);
+    if (!clean || typeof label !== "string") continue;
+    const text = label.replace(/\u0000/g, "").trim().slice(0, 80);
+    if (text) labels[clean] = text;
+  }
+  return Object.keys(labels).length ? labels : undefined;
 }
 
 function cleanColor(value: unknown): string | undefined {
@@ -204,7 +230,8 @@ export function sanitizeWidgetConfig(type: string, input: unknown): WidgetConfig
     metric: cleanKey(src.metric),
     dimension: cleanKey(src.dimension),
     format,
-    columns: cleanKeys(src.columns, 20),
+    columns: cleanKeys(src.columns, 40),
+    columnLabels: cleanLabels(src.columnLabels),
     stages: cleanKeys(src.stages, 8),
     numerator: cleanKey(src.numerator),
     denominator: cleanKey(src.denominator),

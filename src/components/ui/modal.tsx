@@ -16,6 +16,7 @@ type Props = {
   onConfirm?: () => void;
   confirmVariant?: "primary" | "danger";
   pending?: boolean;
+  wide?: boolean;
 };
 
 export function Modal({
@@ -29,6 +30,7 @@ export function Modal({
   onConfirm,
   confirmVariant = "primary",
   pending,
+  wide,
 }: Props) {
   const [mounted, setMounted] = useState(false);
 
@@ -67,7 +69,11 @@ export function Modal({
           if (!pending) onClose();
         }}
       />
-      <div className="relative z-10 w-full max-w-md rounded-[var(--bb-radius-xl)] border border-[var(--bb-border)] bg-[var(--bb-surface)] p-6 shadow-xl">
+      <div
+        className={`relative z-10 max-h-[85vh] w-full overflow-y-auto rounded-[var(--bb-radius-xl)] border border-[var(--bb-border)] bg-[var(--bb-surface)] p-6 shadow-xl ${
+          wide ? "max-w-3xl" : "max-w-md"
+        }`}
+      >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h2

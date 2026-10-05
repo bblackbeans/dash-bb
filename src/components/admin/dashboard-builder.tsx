@@ -18,10 +18,13 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  describeBigQueryTableAction,
+  listBigQueryTablesAction,
   saveDashboardLayoutAction,
   saveDashboardTemplateAction,
   uploadDashboardImageAction,
 } from "@/lib/actions";
+import { suggestChart } from "@/lib/chart-suggestion";
 import { ensureFrames, sizeFor, snap } from "@/lib/canvas-layout";
 import type { DashboardTheme } from "@/lib/dashboard-theme";
 import type { DashboardTemplateDTO } from "@/lib/dashboard-templates";
@@ -36,6 +39,7 @@ import {
   type WidgetType,
 } from "@/lib/widget-config";
 import { BrandMark } from "@/components/admin/brand-mark";
+import { registerPagesEditor } from "@/components/admin/edit-pages-button";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
@@ -94,6 +98,7 @@ export function DashboardBuilder({
   rows,
   rowsByView,
   pages,
+  datasetId,
   initialWidgets,
   initialTheme,
   initialTemplates,
@@ -106,6 +111,7 @@ export function DashboardBuilder({
   rows: DataRow[];
   rowsByView?: Record<string, DataRow[]>;
   pages?: DashboardPageTab[];
+  datasetId?: string;
   initialWidgets: WidgetDTO[];
   initialTheme: DashboardTheme;
   initialTemplates: DashboardTemplateDTO[];
@@ -113,6 +119,11 @@ export function DashboardBuilder({
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [pageId, setPageId] = useState(pages?.[0]?.id || "");
+  const [dashPages, setDashPages] = useState<DashboardPageTab[]>(pages || []);
+  const [catalog, setCatalog] = useState<string[]>([]);
+  const [columnQuery, setColumnQuery] = useState("");
+  const [addingView, setAddingView] = useState("");
+  const [pagesOpen, setPagesOpen] = useState(false);
   const [studioOpen, setStudioOpen] = useState(true);
   const [widgets, setWidgets] = useState(() => ensureFrames(initialWidgets));
   const [theme, setTheme] = useState(initialTheme);
@@ -135,7 +146,7 @@ export function DashboardBuilder({
 
   const selected = widgets.find((widget) => widget.id === selectedId) || null;
   const selectedConfig = selected ? parseWidgetConfig(selected.configJson) : null;
-  const activePage = pages?.find((page) => page.id === pageId) || pages?.[0];
+  const activePage = dashPages.find((page) => page.id === pageId) || dashPages[0];
   const activeView = selectedConfig?.view || activePage?.views[0] || "";
   const fields = useMemo(() => {
     if (rowsByView && activeView && rowsByView[activeView]) return inferFields(rowsByView[activeView]);
@@ -219,6 +230,22 @@ export function DashboardBuilder({
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  useEffect(() => {
+    if (!datasetId) return;
+    let cancelled = false;
+    listBigQueryTablesAction(datasetId).then((result) => {
+      if (!cancelled && result.ok) setCatalog(result.tables.map((table) => table.id));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [datasetId]);
+
+  useEffect(() => {
+    if (!datasetId) return;
+    return registerPagesEditor(() => setPagesOpen(true));
+  }, [datasetId]);
+
   function patchWidget(id: string, recipe: (widget: WidgetDTO, config: WidgetConfig) => WidgetDTO) {
     commit(
       widgets.map((widget) =>
@@ -298,7 +325,7 @@ export function DashboardBuilder({
     const size = sizeFor(type, defaultColSpan(type));
     const y = widgets.reduce((max, widget) => {
       const config = parseWidgetConfig(widget.configJson);
-      if (activePage && (config.pageId || pages?.[0]?.id) !== activePage.id) return max;
+      if (activePage && (config.pageId || dashPages[0]?.id) !== activePage.id) return max;
       const frame = parseWidgetConfig(widget.configJson).frame;
       return frame ? Math.max(max, frame.y + frame.h + 16) : max;
     }, 24);
@@ -315,9 +342,102 @@ export function DashboardBuilder({
     setTab(type === "image" ? "estilo" : "dados");
   }
 
+  async function togglePageView(targetPageId: string, view: string) {
+    const page = dashPages.find((item) => item.id === targetPageId);
+    if (!page || !datasetId) return;
+    if (page.views.includes(view)) {
+      const remaining = widgets.filter((widget) => {
+        const config = parseWidgetConfig(widget.configJson);
+        const widgetPage = config.pageId || dashPages[0]?.id;
+        return !(config.view === view && widgetPage === targetPageId);
+      });
+      if (!remaining.length) {
+        setError("O dashboard precisa de ao menos um bloco.");
+        return;
+      }
+      setDashPages((current) =>
+        current.map((item) =>
+          item.id === targetPageId
+            ? { ...item, views: item.views.filter((name) => name !== view) }
+            : item
+        )
+      );
+      commit(remaining);
+      return;
+    }
+    setAddingView(`${targetPageId}:${view}`);
+    setError("");
+    const described = await describeBigQueryTableAction(datasetId, view);
+    setAddingView("");
+    if (!described.ok) {
+      setError(described.error);
+      return;
+    }
+    const suggestion = suggestChart(view, described.metrics, described.dimensions);
+    setDashPages((current) =>
+      current.map((item) =>
+        item.id === targetPageId ? { ...item, views: [...item.views, view] } : item
+      )
+    );
+    const span = defaultColSpan(suggestion.type);
+    const size = sizeFor(suggestion.type, span);
+    const y = widgets.reduce((max, widget) => {
+      const config = parseWidgetConfig(widget.configJson);
+      if ((config.pageId || dashPages[0]?.id) !== targetPageId) return max;
+      return config.frame ? Math.max(max, config.frame.y + config.frame.h + 16) : max;
+    }, 24);
+    const config: WidgetConfig = {
+      colSpan: span,
+      metric: suggestion.metric || undefined,
+      dimension: suggestion.dimension || undefined,
+      columns: suggestion.columns,
+      pageId: targetPageId,
+      view,
+      frame: { x: 24, y: snap(y), w: size.w, h: size.h },
+      format: /^(spend|revenue|cpm|cpc|cpp)$/.test(suggestion.metric) ? "currency" : undefined,
+    };
+    commit([
+      ...widgets,
+      {
+        id: `tmp-${crypto.randomUUID()}`,
+        type: suggestion.type,
+        title: view.replaceAll("_", " "),
+        sortOrder: widgets.reduce((max, widget) => Math.max(max, widget.sortOrder), 0) + 1,
+        configJson: JSON.stringify(config),
+      },
+    ]);
+    setPageId(targetPageId);
+  }
+
+  function deletePage(targetPageId: string) {
+    if (dashPages.length < 2) {
+      setError("O dashboard precisa de ao menos uma página.");
+      return;
+    }
+    const remainingWidgets = widgets.filter((widget) => {
+      const config = parseWidgetConfig(widget.configJson);
+      const widgetPage = config.pageId || dashPages[0]?.id;
+      return widgetPage !== targetPageId;
+    });
+    if (!remainingWidgets.length) {
+      setError("Essa página tem os únicos blocos do dashboard.");
+      return;
+    }
+    const nextPages = dashPages.filter((page) => page.id !== targetPageId);
+    setDashPages(nextPages);
+    commit(remainingWidgets);
+    if (pageId === targetPageId) setPageId(nextPages[0]?.id || "");
+    setError("");
+  }
+
   async function save() {
     setSaving(true);
     setError("");
+    if (datasetId && dashPages.some((page) => page.views.length > 0 && !page.title.trim())) {
+      setSaving(false);
+      setError("Dê um nome para cada página que tiver views.");
+      return false;
+    }
     const result = await saveDashboardLayoutAction({
       dashboardId,
       clientSlug,
@@ -328,11 +448,12 @@ export function DashboardBuilder({
         title: widget.title,
         config: parseWidgetConfig(widget.configJson),
       })),
+      pages: datasetId ? dashPages : undefined,
     });
     setSaving(false);
     if (!result.ok) {
       setError(result.error);
-      return;
+      return false;
     }
     const next = ensureFrames(result.widgets);
     setWidgets(next);
@@ -340,6 +461,7 @@ export function DashboardBuilder({
     setSelectedId(next[0]?.id ?? null);
     setSaved(true);
     router.refresh();
+    return true;
   }
 
   async function saveTemplate() {
@@ -611,7 +733,8 @@ export function DashboardBuilder({
                     onChange={(metric) =>
                       updateConfig({
                         metric,
-                        format: metric === "spend" || metric === "revenue" ? "currency" : undefined,
+                        format:
+                          /^(spend|revenue|cpm|cpc|cpp)$/.test(metric) ? "currency" : undefined,
                       })
                     }
                   />
@@ -649,6 +772,68 @@ export function DashboardBuilder({
                     metrics={fields.metrics}
                     onChange={(stages) => updateConfig({ stages })}
                   />
+                ) : null}
+
+                {tab === "dados" && selected.type === "table" ? (
+                  <div className="space-y-2">
+                    <p className="text-xs text-[var(--bb-gray)]">Colunas da tabela</p>
+                    <Input
+                      value={columnQuery}
+                      placeholder="Buscar coluna"
+                      onChange={(event) => setColumnQuery(event.target.value)}
+                    />
+                    <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                      {[...fields.dimensions, ...fields.metrics]
+                        .filter((field) => {
+                          const query = columnQuery.trim().toLowerCase();
+                          if (!query) return true;
+                          return field.toLowerCase().includes(query) || fieldLabel(field).toLowerCase().includes(query);
+                        })
+                        .map((field) => {
+                          const selectedColumns = selectedConfig.columns?.length
+                            ? selectedConfig.columns
+                            : [...fields.dimensions, ...fields.metrics].slice(0, 8);
+                          const checked = selectedColumns.includes(field);
+                          return (
+                            <div key={field} className="space-y-1">
+                              <label className="flex items-center gap-2 text-xs text-[var(--bb-cream)]">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => {
+                                    const next = checked
+                                      ? selectedColumns.filter((column) => column !== field)
+                                      : [...selectedColumns, field];
+                                    if (!next.length) {
+                                      setError("A tabela precisa de ao menos uma coluna.");
+                                      return;
+                                    }
+                                    const labels = { ...(selectedConfig.columnLabels || {}) };
+                                    if (checked) delete labels[field];
+                                    updateConfig({ columns: next, columnLabels: labels });
+                                  }}
+                                />
+                                {field}
+                              </label>
+                              {checked ? (
+                                <Input
+                                  value={selectedConfig.columnLabels?.[field] || ""}
+                                  placeholder={`Nome na tabela: ${fieldLabel(field)}`}
+                                  onChange={(event) =>
+                                    updateConfig({
+                                      columnLabels: {
+                                        ...(selectedConfig.columnLabels || {}),
+                                        [field]: event.target.value,
+                                      },
+                                    })
+                                  }
+                                />
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
                 ) : null}
 
                 {tab === "estilo" && chartLike ? (
@@ -760,7 +945,7 @@ export function DashboardBuilder({
             subtitle={subtitle}
             rows={rows}
             rowsByView={rowsByView}
-            pages={pages}
+            pages={dashPages.length > 1 ? dashPages : undefined}
             pageId={pageId}
             onPageChange={(next) => {
               setPageId(next);
@@ -772,6 +957,84 @@ export function DashboardBuilder({
           />
         </div>
       </div>
+      <Modal
+        open={pagesOpen}
+        wide
+        title="Páginas"
+        description="Marque as views de cada página. Cada uma entra com o gráfico mais adequado. Salve para carregar os dados novos."
+        onClose={() => setPagesOpen(false)}
+        cancelLabel="Fechar"
+        confirmLabel="Salvar"
+        pending={saving}
+        onConfirm={() => {
+          void save().then((ok) => {
+            if (ok) setPagesOpen(false);
+          });
+        }}
+      >
+        <div className="mb-3 flex justify-end">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              const id = `pagina${Date.now().toString(36)}`;
+              setDashPages((current) => [...current, { id, title: "", views: [] }]);
+              setPageId(id);
+            }}
+          >
+            Adicionar
+          </Button>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          {dashPages.map((page) => (
+            <div key={page.id} className="space-y-2 rounded-[var(--bb-radius)] border border-[var(--bb-border)] p-3">
+              <div className="flex items-center gap-2">
+                <Input
+                  value={page.title}
+                  placeholder="Nome da página"
+                  onChange={(event) =>
+                    setDashPages((current) =>
+                      current.map((item) =>
+                        item.id === page.id ? { ...item, title: event.target.value } : item
+                      )
+                    )
+                  }
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="danger"
+                  aria-label={`Excluir ${page.title || "página"}`}
+                  disabled={dashPages.length < 2}
+                  onClick={() => deletePage(page.id)}
+                >
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                    <path d="M4 7h16" />
+                    <path d="M9 7V5h6v2" />
+                    <path d="M7 7l1 13h8l1-13" />
+                    <path d="M10 11v6M14 11v6" />
+                  </svg>
+                </Button>
+              </div>
+              <div className="grid max-h-64 grid-cols-1 gap-1 overflow-y-auto">
+                {(catalog.length ? catalog : page.views).map((view) => (
+                  <label key={view} className="flex items-center gap-2 text-sm text-[var(--bb-cream)]">
+                    <input
+                      type="checkbox"
+                      checked={page.views.includes(view)}
+                      disabled={addingView === `${page.id}:${view}`}
+                      onChange={() => void togglePageView(page.id, view)}
+                    />
+                    {addingView === `${page.id}:${view}` ? "Lendo..." : view.replaceAll("_", " ")}
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        {error ? <p className="mt-3 text-sm text-red-300">{error}</p> : null}
+      </Modal>
       <Modal
         open={Boolean(templateToApply)}
         title="Aplicar modelo?"

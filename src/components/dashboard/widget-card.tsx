@@ -16,7 +16,7 @@ import {
 } from "recharts";
 import type { DataRow } from "@/lib/mock-loader";
 import type { DashboardTheme } from "@/lib/dashboard-theme";
-import { groupByDimension, sumMetric } from "@/lib/filter-engine";
+import { aggregateMetric, groupByDimension, sumMetric } from "@/lib/filter-engine";
 import {
   fieldLabel,
   parseWidgetConfig,
@@ -52,7 +52,7 @@ function formatValue(value: number, format?: string) {
     return value.toLocaleString("pt-BR", {
       style: "currency",
       currency: "BRL",
-      maximumFractionDigits: 0,
+      maximumFractionDigits: 2,
     });
   }
   if (format === "percent") {
@@ -70,7 +70,7 @@ function axisFormat(format?: string) {
       ? value.toLocaleString("pt-BR", {
           style: "currency",
           currency: "BRL",
-          maximumFractionDigits: 0,
+          maximumFractionDigits: 2,
         })
       : value.toLocaleString("pt-BR");
 }
@@ -198,12 +198,15 @@ function MetricCard({
   const isRate = widget.type === "rate";
   const numerator = config.numerator || "qualified";
   const denominator = config.denominator || "leads";
+  const shownFormat =
+    config.format ||
+    (/^(cpm|cpc|cpp|spend|revenue)$/.test(config.metric || "") ? "currency" : undefined);
   const current = isRate
     ? ratio(rows, numerator, denominator)
-    : sumMetric(rows, config.metric || "leads");
+    : aggregateMetric(rows, config.metric || "leads");
   const previous = isRate
     ? ratio(comparisonRows, numerator, denominator)
-    : sumMetric(comparisonRows, config.metric || "leads");
+    : aggregateMetric(comparisonRows, config.metric || "leads");
   const delta =
     compare && previous !== 0 ? ((current - previous) / previous) * 100 : null;
 
@@ -213,7 +216,7 @@ function MetricCard({
         {widget.title}
       </p>
       <p className="mt-2 text-3xl font-semibold" style={{ color: look.palette[0] || look.title }}>
-        {formatValue(current, isRate ? "percent" : config.format)}
+        {formatValue(current, isRate ? "percent" : shownFormat)}
       </p>
       {isRate ? (
         <p className="mt-1 text-xs" style={{ color: look.muted }}>
@@ -304,7 +307,7 @@ function ChartBody({
             <tr>
               {columns.map((column) => (
                 <th key={column} className="px-2 py-2 font-medium">
-                  {fieldLabel(column)}
+                  {config.columnLabels?.[column] || fieldLabel(column)}
                 </th>
               ))}
             </tr>
@@ -340,8 +343,10 @@ function ChartBody({
     );
   }
 
+  const chartFormat =
+    config.format || (/^(cpm|cpc|cpp|spend|revenue)$/.test(metric) ? "currency" : undefined);
   const data = groupByDimension(rows, dimension, metric);
-  const tick = axisFormat(config.format);
+  const tick = axisFormat(chartFormat);
   if (widget.type === "line") {
     return (
       <LineChart width={width} height={height} data={data}>

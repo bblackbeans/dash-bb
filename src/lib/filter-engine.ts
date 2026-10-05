@@ -97,8 +97,18 @@ export function previousRange(start: string, end: string): {
   return { start: toIso(prevStart), end: toIso(prevEnd) };
 }
 
+function rowDate(row: DataRow): string | null {
+  for (const key of ["date", "metric_date", "segments_date"] as const) {
+    const value = row[key];
+    if (value == null || value === "") continue;
+    return String(value).slice(0, 10);
+  }
+  return null;
+}
+
 function inDateRange(row: DataRow, start: string, end: string): boolean {
-  const d = String(row.date);
+  const d = rowDate(row);
+  if (!d) return true;
   return d >= start && d <= end;
 }
 
@@ -128,7 +138,7 @@ export function filterDataset(
 ): DataRow[] {
   const range = resolveDateRange(filters, today);
   return rows.filter((row) => {
-    if (range && "date" in row && !inDateRange(row, range.start, range.end)) return false;
+    if (range && !inDateRange(row, range.start, range.end)) return false;
     for (const [key, selected] of Object.entries(filters.facets)) {
       if (!(key in row)) continue;
       if (!matchesMulti(row[key], selected)) return false;
@@ -159,8 +169,26 @@ export function filterComparison(
   );
 }
 
+const RATE_FORMULAS: Record<string, { numerator: string; denominator: string; scale: number }> = {
+  cpm: { numerator: "spend", denominator: "impressions", scale: 1000 },
+  cpp: { numerator: "spend", denominator: "reach", scale: 1000 },
+  cpc: { numerator: "spend", denominator: "clicks", scale: 1 },
+  ctr: { numerator: "clicks", denominator: "impressions", scale: 100 },
+  frequency: { numerator: "impressions", denominator: "reach", scale: 1 },
+};
+
 export function sumMetric(rows: DataRow[], metric: string): number {
   return rows.reduce((acc, row) => acc + Number(row[metric] ?? 0), 0);
+}
+
+export function aggregateMetric(rows: DataRow[], metric: string): number {
+  const formula = RATE_FORMULAS[metric];
+  if (formula && rows.some((row) => formula.numerator in row && formula.denominator in row)) {
+    const denominator = sumMetric(rows, formula.denominator);
+    if (!denominator) return 0;
+    return (sumMetric(rows, formula.numerator) / denominator) * formula.scale;
+  }
+  return sumMetric(rows, metric);
 }
 
 export function groupByDimension(
@@ -168,16 +196,17 @@ export function groupByDimension(
   dimension: string,
   metric: string
 ): { name: string; value: number }[] {
-  const map = new Map<string, number>();
+  const groups = new Map<string, DataRow[]>();
   for (const row of rows) {
-    const key =
-      dimension === "source" ? originLabel(row) : String(row[dimension] ?? "");
-    map.set(key, (map.get(key) ?? 0) + Number(row[metric] ?? 0));
+    const key = dimension === "source" ? originLabel(row) : String(row[dimension] ?? "");
+    const list = groups.get(key);
+    if (list) list.push(row);
+    else groups.set(key, [row]);
   }
-  return Array.from(map.entries())
-    .map(([name, value]) => ({ name, value }))
+  return Array.from(groups.entries())
+    .map(([name, group]) => ({ name, value: aggregateMetric(group, metric) }))
     .sort((a, b) =>
-      dimension === "date" ? a.name.localeCompare(b.name) : b.value - a.value
+      dimension === "date" || /date/i.test(dimension) ? a.name.localeCompare(b.name) : b.value - a.value
     );
 }
 
@@ -190,22 +219,51 @@ export function uniqueValues(rows: DataRow[], field: string): string[] {
   return Array.from(set).filter(Boolean).sort();
 }
 
-const FACET_ORDER = ["campaign", "utmSource", "utmMedium", "ageRange", "adset", "page", "device", "source"];
+const FACET_PRIORITY = [
+  "campaign_name",
+  "campaign",
+  "adset_name",
+  "adset",
+  "ad_name",
+  "adgroup_name",
+  "creative_name",
+  "campaign_group_name",
+  "campaign_detail_name",
+  "campaign_group_detail_name",
+  "searchtermview_searchterm",
+  "ad_id",
+  "adset_id",
+  "campaign_id",
+  "utmSource",
+  "utmMedium",
+  "ageRange",
+  "page",
+  "device",
+  "source",
+];
+
+function extraFacetKey(key: string): boolean {
+  if (FACET_PRIORITY.includes(key) || key === "date" || /date/i.test(key)) return false;
+  if (key.startsWith("a_") || /_id$/i.test(key)) return false;
+  if (/account|status|objective|currency|url|preview/i.test(key)) return false;
+  return /name|term|keyword|device|source|medium|campaign|adset|adgroup/i.test(key);
+}
 
 export function filterFacets(rows: DataRow[]): { key: string; values: string[] }[] {
   const keys = new Set<string>();
-  for (const row of rows.slice(0, 40)) {
-    for (const [key, value] of Object.entries(row)) {
-      if (typeof value === "string" && key !== "date") keys.add(key);
+  for (const row of rows) {
+    for (const key of Object.keys(row)) {
+      if (FACET_PRIORITY.includes(key) || extraFacetKey(key)) keys.add(key);
     }
   }
   if (keys.has("campaign")) keys.delete("utmCampaign");
+  if (keys.has("ad_name")) keys.delete("name");
   const ordered = [
-    ...FACET_ORDER.filter((key) => keys.has(key)),
-    ...Array.from(keys).filter((key) => !FACET_ORDER.includes(key)),
+    ...FACET_PRIORITY.filter((key) => keys.has(key)),
+    ...Array.from(keys).filter((key) => !FACET_PRIORITY.includes(key)).sort(),
   ];
   return ordered
     .map((key) => ({ key, values: uniqueValues(rows, key) }))
     .filter((facet) => facet.values.length > 1)
-    .slice(0, 5);
+    .slice(0, 8);
 }

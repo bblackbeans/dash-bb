@@ -5,10 +5,10 @@ import {
   CalendarRange,
   FileText,
   GitBranch,
-  GitCompareArrows,
   Megaphone,
   MonitorSmartphone,
   Search,
+  Tag,
   Users,
   X,
   type LucideIcon,
@@ -33,10 +33,22 @@ type Props = {
 
 const FACET_ICONS: Record<string, LucideIcon> = {
   campaign: Megaphone,
+  campaign_name: Megaphone,
+  campaign_id: Megaphone,
+  campaign_group_name: Megaphone,
+  campaign_detail_name: Megaphone,
+  campaign_group_detail_name: Megaphone,
   utmSource: GitBranch,
   utmMedium: GitBranch,
   source: GitBranch,
   ageRange: Users,
+  adset: Users,
+  adset_name: Users,
+  adset_id: Users,
+  adgroup_name: Users,
+  ad_name: Tag,
+  ad_id: Tag,
+  creative_name: Tag,
   page: FileText,
   device: MonitorSmartphone,
 };
@@ -208,20 +220,6 @@ export function FilterBar({ filters, onChange, facets }: Props) {
             onChange={(values) => setFacet(facet.key, values)}
           />
         ))}
-
-        <button
-          type="button"
-          disabled={filters.preset === "all"}
-          onClick={() => onChange({ ...filters, compare: !filters.compare })}
-          className={`inline-flex items-center gap-2 rounded-[var(--bb-radius)] border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-40 ${
-            filters.compare
-              ? "border-[var(--bb-accent)] bg-[var(--bb-accent)]/15 text-[var(--bb-accent)]"
-              : "border-[var(--bb-border)] text-[var(--bb-cream)]"
-          }`}
-        >
-          <GitCompareArrows className="h-4 w-4" aria-hidden />
-          Período anterior
-        </button>
 
         {dirty ? (
           <button

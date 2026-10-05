@@ -13,6 +13,7 @@ import {
   describeBigQueryTable,
   listBigQueryDatasets,
   listBigQueryTables,
+  parseBigQuerySource,
   testBigQueryConnection,
 } from "@/lib/bigquery";
 import { sanitizeTheme, type DashboardTheme } from "@/lib/dashboard-theme";
@@ -302,6 +303,7 @@ export async function saveDashboardLayoutAction(input: {
   dashSlug: string;
   theme: DashboardTheme;
   widgets: LayoutWidgetInput[];
+  pages?: { id: string; title: string; views: string[] }[];
 }): Promise<
   | {
       ok: true;
@@ -322,8 +324,8 @@ export async function saveDashboardLayoutAction(input: {
   if (!input.widgets.length) {
     return { ok: false, error: "O dashboard precisa de ao menos um bloco." };
   }
-  if (input.widgets.length > 40) {
-    return { ok: false, error: "Limite de 40 blocos por dashboard." };
+  if (input.widgets.length > 80) {
+    return { ok: false, error: "Limite de 80 blocos por dashboard." };
   }
 
   const dashboard = await prisma.dashboard.findFirst({
@@ -334,6 +336,29 @@ export async function saveDashboardLayoutAction(input: {
     },
   });
   if (!dashboard) return { ok: false, error: "Dashboard não encontrado." };
+
+  let sourceJson: string | undefined;
+  if (input.pages) {
+    const source = parseBigQuerySource(dashboard.sourceJson);
+    if (source) {
+      const pages = input.pages
+        .map((page) => ({
+          id: page.id.trim(),
+          title: page.title.trim(),
+          views: page.views.filter((view) => /^[A-Za-z_][A-Za-z0-9_]{0,200}$/.test(view)),
+        }))
+        .filter((page) => page.id && page.title && page.views.length);
+      if (!pages.length) {
+        return { ok: false, error: "Cada página com views precisa de um nome." };
+      }
+      sourceJson = JSON.stringify({
+        dataset: source.dataset,
+        table: pages[0].views[0],
+        location: source.location,
+        pages,
+      });
+    }
+  }
 
   let data: {
     dashboardId: string;
@@ -362,7 +387,10 @@ export async function saveDashboardLayoutAction(input: {
     await prisma.$transaction([
       prisma.dashboard.update({
         where: { id: dashboard.id },
-        data: { themeJson: JSON.stringify(sanitizeTheme(input.theme)) },
+        data: {
+          themeJson: JSON.stringify(sanitizeTheme(input.theme)),
+          ...(sourceJson ? { sourceJson } : {}),
+        },
       }),
       prisma.widget.deleteMany({ where: { dashboardId: dashboard.id } }),
       prisma.widget.createMany({ data }),

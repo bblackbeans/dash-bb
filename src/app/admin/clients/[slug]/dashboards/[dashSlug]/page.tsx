@@ -5,6 +5,7 @@ import { Eye, EyeOff } from "lucide-react";
 import { BigQuerySource } from "@/components/admin/bigquery-source";
 import { CopyPublicUrl } from "@/components/admin/copy-public-url";
 import { DashboardBuilder } from "@/components/admin/dashboard-builder";
+import { EditPagesButton } from "@/components/admin/edit-pages-button";
 import { togglePublicAction } from "@/lib/actions";
 import {
   bigQueryConfigured,
@@ -77,6 +78,7 @@ export default async function AdminDashboardPage({ params }: Props) {
               {dashboard.isPublic ? "público" : "privado"}
             </Badge>
             <Badge tone="info">{dashboard.dataSource}</Badge>
+            <EditPagesButton />
             <form action={togglePublicAction}>
               <input type="hidden" name="id" value={dashboard.id} />
               <input
@@ -150,7 +152,8 @@ export default async function AdminDashboardPage({ params }: Props) {
         subtitle={`${dashboard.client.name} · /p/${dashboard.client.slug}/${dashboard.slug}`}
         rows={rows}
         rowsByView={dashboard.dataSource === "bigquery" ? rowsByView : undefined}
-        pages={source && source.pages.length > 1 ? source.pages : undefined}
+        pages={source?.pages}
+        datasetId={dashboard.dataSource === "bigquery" ? source?.dataset : undefined}
         initialTheme={parseTheme(dashboard.themeJson)}
         initialTemplates={templates}
         initialWidgets={[...dashboard.widgets]
