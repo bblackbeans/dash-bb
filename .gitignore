@@ -39,6 +39,7 @@ yarn-error.log*
 
 # chave da conta de serviço do BigQuery
 /secrets/
+/data/bigquery-service-account.json
 
 # sqlite
 *.db

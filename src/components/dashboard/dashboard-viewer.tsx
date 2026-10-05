@@ -11,7 +11,7 @@ import {
   filterFacets,
   type DashboardFilters,
 } from "@/lib/filter-engine";
-import { fieldLabel, type WidgetFrame } from "@/lib/widget-config";
+import { fieldLabel, parseWidgetConfig, type WidgetFrame } from "@/lib/widget-config";
 import { CanvasBoard } from "./canvas-board";
 import { FilterBar } from "./filter-bar";
 
@@ -30,8 +30,18 @@ export type WidgetEditApi = {
   onGestureStart: () => void;
 };
 
+export type DashboardPageTab = {
+  id: string;
+  title: string;
+  views: string[];
+};
+
 type Props = {
   rows: DataRow[];
+  rowsByView?: Record<string, DataRow[]>;
+  pages?: DashboardPageTab[];
+  pageId?: string;
+  onPageChange?: (pageId: string) => void;
   widgets: WidgetDTO[];
   theme?: DashboardTheme;
   title: string;
@@ -42,6 +52,10 @@ type Props = {
 
 export function DashboardViewer({
   rows,
+  rowsByView,
+  pages,
+  pageId,
+  onPageChange,
   widgets,
   theme = BLACKBEANS_THEME,
   title,
@@ -50,40 +64,98 @@ export function DashboardViewer({
   edit,
 }: Props) {
   const [filters, setFilters] = useState<DashboardFilters>(defaultFilters);
+  const [localPageId, setLocalPageId] = useState(pages?.[0]?.id || "");
+  const activePageId = pageId || localPageId;
+  const activePage = pages?.find((page) => page.id === activePageId) || pages?.[0];
+
+  function selectPage(next: string) {
+    setLocalPageId(next);
+    onPageChange?.(next);
+  }
+
+  const pageRows = useMemo(() => {
+    if (!activePage || !rowsByView) return rows;
+    return activePage.views.flatMap((view) => rowsByView[view] || []);
+  }, [activePage, rows, rowsByView]);
+
+  const visibleWidgets = useMemo(() => {
+    if (!activePage) return widgets;
+    return widgets.filter((widget) => {
+      const config = parseWidgetConfig(widget.configJson);
+      return (config.pageId || pages?.[0]?.id) === activePage.id;
+    });
+  }, [activePage, pages, widgets]);
 
   const filtered = useMemo(
-    () => filterDataset(rows, filters),
-    [rows, filters]
+    () => filterDataset(activePage ? pageRows : rows, filters),
+    [activePage, pageRows, rows, filters]
   );
+  const filteredByView = useMemo(() => {
+    if (!rowsByView) return undefined;
+    const next: Record<string, DataRow[]> = {};
+    for (const [view, viewRows] of Object.entries(rowsByView)) {
+      next[view] = filterDataset(viewRows, filters);
+    }
+    return next;
+  }, [rowsByView, filters]);
   const comparison = useMemo(
-    () => filterComparison(rows, filters),
-    [rows, filters]
+    () => filterComparison(activePage ? pageRows : rows, filters),
+    [activePage, pageRows, rows, filters]
   );
+  const comparisonByView = useMemo(() => {
+    if (!rowsByView) return undefined;
+    const next: Record<string, DataRow[]> = {};
+    for (const [view, viewRows] of Object.entries(rowsByView)) {
+      next[view] = filterComparison(viewRows, filters);
+    }
+    return next;
+  }, [rowsByView, filters]);
 
   const facets = useMemo(
     () =>
-      filterFacets(rows).map((facet) => ({
+      filterFacets(pageRows).map((facet) => ({
         ...facet,
         label: fieldLabel(facet.key),
       })),
-    [rows]
+    [pageRows]
   );
 
   return (
-    <div className="space-y-6">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold text-[var(--bb-cream)]">
-          {title}
-        </h1>
-        {subtitle ? (
-          <p className="text-sm text-[var(--bb-gray)]">{subtitle}</p>
-        ) : null}
-        {readOnly ? (
-          <p className="text-xs uppercase tracking-wide text-[var(--bb-accent)]">
-            Visualização pública
-          </p>
-        ) : null}
-      </header>
+    <div className={edit ? "space-y-3" : "space-y-6"}>
+      {edit ? null : (
+        <header className="space-y-1">
+          <h1 className="text-2xl font-semibold text-[var(--bb-cream)]">
+            {title}
+          </h1>
+          {subtitle ? (
+            <p className="text-sm text-[var(--bb-gray)]">{subtitle}</p>
+          ) : null}
+          {readOnly ? (
+            <p className="text-xs uppercase tracking-wide text-[var(--bb-accent)]">
+              Visualização pública
+            </p>
+          ) : null}
+        </header>
+      )}
+
+      {pages && pages.length > 1 ? (
+        <div className="flex flex-wrap gap-2">
+          {pages.map((page) => (
+            <button
+              key={page.id}
+              type="button"
+              onClick={() => selectPage(page.id)}
+              className={`cursor-pointer rounded-full border px-4 py-2 text-sm ${
+                page.id === activePage?.id
+                  ? "border-[var(--bb-accent)] bg-[var(--bb-accent)] text-[var(--bb-black)]"
+                  : "border-[var(--bb-border)] text-[var(--bb-cream)] hover:border-[var(--bb-accent)]"
+              }`}
+            >
+              {page.title}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <FilterBar
         filters={filters}
@@ -92,10 +164,12 @@ export function DashboardViewer({
       />
 
       <CanvasBoard
-        widgets={ensureFrames(widgets)}
+        widgets={ensureFrames(visibleWidgets)}
         theme={theme}
         rows={filtered}
         comparisonRows={comparison}
+        rowsByView={filteredByView}
+        comparisonByView={comparisonByView}
         compare={filters.compare}
         editing={Boolean(edit)}
         selectedId={edit?.selectedId}

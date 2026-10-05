@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { artboardHeight, snap } from "@/lib/canvas-layout";
+import { artboardHeight, clampFrame, snap } from "@/lib/canvas-layout";
 import type { DashboardTheme } from "@/lib/dashboard-theme";
 import type { DataRow } from "@/lib/mock-loader";
 import { parseWidgetConfig, type WidgetFrame } from "@/lib/widget-config";
@@ -16,6 +16,7 @@ type DragState = {
   startX: number;
   startY: number;
   frame: WidgetFrame;
+  bounds: { width: number; height: number };
 };
 
 const HANDLES: { mode: DragMode; className: string }[] = [
@@ -31,6 +32,8 @@ export function CanvasBoard({
   theme,
   rows,
   comparisonRows,
+  rowsByView,
+  comparisonByView,
   compare,
   editing,
   selectedId,
@@ -42,6 +45,8 @@ export function CanvasBoard({
   theme: DashboardTheme;
   rows: DataRow[];
   comparisonRows: DataRow[];
+  rowsByView?: Record<string, DataRow[]>;
+  comparisonByView?: Record<string, DataRow[]>;
   compare: boolean;
   editing?: boolean;
   selectedId?: string | null;
@@ -62,7 +67,7 @@ export function CanvasBoard({
     if (!outer) return;
     const measure = () => {
       const ratio = outer.clientWidth / theme.canvasWidth;
-      const next = editing ? Math.min(1, ratio) : ratio;
+      const next = ratio;
       scaleRef.current = next || 1;
       setScale(next || 1);
     };
@@ -70,7 +75,7 @@ export function CanvasBoard({
     const observer = new ResizeObserver(measure);
     observer.observe(outer);
     return () => observer.disconnect();
-  }, [editing, theme.canvasWidth]);
+  }, [theme.canvasWidth]);
 
   useEffect(() => {
     function point(event: PointerEvent) {
@@ -109,12 +114,7 @@ export function CanvasBoard({
         h = snap(Math.max(72, drag.frame.h - dy));
         y = snap(drag.frame.y + (drag.frame.h - h));
       }
-      onFrame(drag.id, {
-        x: Math.max(0, x),
-        y: Math.max(0, y),
-        w,
-        h,
-      });
+      onFrame(drag.id, clampFrame({ x, y, w, h }, drag.bounds));
     }
 
     function onUp() {
@@ -137,8 +137,9 @@ export function CanvasBoard({
     if (!editing) return;
     event.stopPropagation();
     event.preventDefault();
-    const frame = parseWidgetConfig(widget.configJson).frame;
-    if (!frame) return;
+    const rawFrame = parseWidgetConfig(widget.configJson).frame;
+    if (!rawFrame) return;
+    const frame = clampFrame(rawFrame, { width: theme.canvasWidth, height });
     onSelect?.(widget.id);
     onGestureStart?.();
     const board = boardRef.current;
@@ -151,11 +152,12 @@ export function CanvasBoard({
       startX: (event.clientX - rect.left) / current,
       startY: (event.clientY - rect.top) / current,
       frame,
+      bounds: { width: theme.canvasWidth, height },
     };
   }
 
   return (
-    <div className={editing ? "rounded-xl bg-[#0b0a0a] p-4" : "w-full"}>
+    <div className={editing ? "w-full rounded-xl bg-[#0b0a0a] p-4" : "w-full"}>
       {editing ? (
         <p className="mb-3 text-xs uppercase tracking-[0.16em] text-[var(--bb-accent)]">
           Página · {theme.canvasWidth} × {height} px
@@ -186,8 +188,9 @@ export function CanvasBoard({
           }}
         >
           {ordered.map((widget) => {
-            const frame = parseWidgetConfig(widget.configJson).frame;
-            if (!frame) return null;
+            const rawFrame = parseWidgetConfig(widget.configJson).frame;
+            if (!rawFrame) return null;
+            const frame = clampFrame(rawFrame, { width: theme.canvasWidth, height });
             const selected = editing && selectedId === widget.id;
             return (
               <div
@@ -208,8 +211,13 @@ export function CanvasBoard({
                 <WidgetCard
                   widget={widget}
                   theme={theme}
-                  rows={rows}
-                  comparisonRows={comparisonRows}
+                  rows={
+                    rowsByView?.[parseWidgetConfig(widget.configJson).view || ""] || rows
+                  }
+                  comparisonRows={
+                    comparisonByView?.[parseWidgetConfig(widget.configJson).view || ""] ||
+                    comparisonRows
+                  }
                   compare={compare}
                   width={frame.w}
                   height={frame.h}

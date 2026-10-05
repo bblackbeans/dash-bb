@@ -8,7 +8,9 @@ import path from "path";
 import { authOptions } from "@/lib/auth";
 import {
   bigQueryConfigured,
+  bigQueryLocation,
   bigQueryProjectId,
+  describeBigQueryTable,
   listBigQueryDatasets,
   listBigQueryTables,
   testBigQueryConnection,
@@ -132,6 +134,14 @@ export type WidgetInput = {
   dimension?: string;
   format?: string;
   columns?: string[];
+  pageId?: string;
+  view?: string;
+};
+
+export type DashboardPageInput = {
+  id: string;
+  title: string;
+  views: string[];
 };
 
 export async function createDashboardFromWizard(input: {
@@ -142,6 +152,9 @@ export async function createDashboardFromWizard(input: {
   description?: string;
   dataSource: string;
   mockPath: string;
+  dataset?: string;
+  table?: string;
+  pages?: DashboardPageInput[];
   widgets: WidgetInput[];
 }): Promise<{ ok: true; slug: string } | { ok: false; error: string }> {
   await requireSession();
@@ -151,7 +164,18 @@ export async function createDashboardFromWizard(input: {
     return { ok: false, error: "Dados inválidos" };
   }
 
-  const dataSource = "mock";
+  const useBigQuery = input.dataSource === "bigquery";
+  const dataset = input.dataset?.trim() || "";
+  const pages = (input.pages || []).filter((page) => page.title.trim() && page.views.length);
+  const table = input.table?.trim() || pages[0]?.views[0] || "";
+  if (useBigQuery && (!dataset || !pages.length)) {
+    return { ok: false, error: "Escolha o dataset e ao menos uma view em cada página." };
+  }
+  if (useBigQuery && !bigQueryConfigured()) {
+    return { ok: false, error: "A chave do BigQuery não está configurada." };
+  }
+
+  const dataSource = useBigQuery ? "bigquery" : "mock";
   const mockPath = input.mockPath || "johnson-traffic.json";
 
   const widgets = (input.widgets.length
@@ -165,7 +189,7 @@ export async function createDashboardFromWizard(input: {
     title: w.title,
     sortOrder: i,
     configJson: JSON.stringify(
-      w.type === "table"
+        w.type === "table"
         ? {
             colSpan: defaultColSpan(w.type),
             columns:
@@ -180,12 +204,16 @@ export async function createDashboardFromWizard(input: {
                 "conversions",
                 "revenue",
               ],
+            pageId: w.pageId,
+            view: w.view,
           }
         : {
             colSpan: defaultColSpan(w.type),
             metric: w.metric || "sessions",
             dimension: w.dimension,
             format: w.format,
+            pageId: w.pageId,
+            view: w.view,
           }
     ),
   }));
@@ -199,6 +227,14 @@ export async function createDashboardFromWizard(input: {
         description: input.description?.trim() || null,
         dataSource,
         mockPath,
+        sourceJson: useBigQuery
+          ? JSON.stringify({
+              dataset,
+              table,
+              location: bigQueryLocation(),
+              pages,
+            })
+          : "{}",
         widgets: { create: widgets },
       },
     });
@@ -475,6 +511,23 @@ export async function listBigQueryDatasetsAction(): Promise<
     return { ok: true, datasets: await listBigQueryDatasets() };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Não foi possível listar os datasets." };
+  }
+}
+
+export async function describeBigQueryTableAction(
+  dataset: string,
+  table: string
+): Promise<
+  { ok: true; metrics: string[]; dimensions: string[] } | { ok: false; error: string }
+> {
+  await requireSession();
+  try {
+    return { ok: true, ...(await describeBigQueryTable(dataset, table)) };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Não foi possível ler as colunas da view.",
+    };
   }
 }
 

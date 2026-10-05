@@ -100,6 +100,12 @@ body[data-studio="open"] main.bb-admin-main {
   padding-left: 21rem;
 }
 
+body[data-editor="open"] .bb-admin-bar,
+body[data-editor="open"] main.bb-admin-main {
+  width: 100%;
+  max-width: none;
+}
+
 html:has(body[data-editor="open"]),
 body[data-editor="open"] {
   height: 100dvh;
@@ -132,7 +138,8 @@ body[data-editor="open"] .bb-dash-page {
   gap: 0.75rem;
 }
 
-body[data-editor="open"] .bb-dash-page > :first-child {
+body[data-editor="open"] .bb-dash-page > :first-child,
+body[data-editor="open"] .bb-dash-source {
   flex-shrink: 0;
   margin-bottom: 0;
 }

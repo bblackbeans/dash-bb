@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { DashboardWizard } from "@/components/admin/dashboard-wizard";
 import { PageHeader } from "@/components/ui/page-header";
+import { bigQueryConfigured } from "@/lib/bigquery";
 import { listMockFiles, peekMockFields } from "@/lib/mocks";
 import { prisma } from "@/lib/prisma";
 
@@ -22,7 +23,7 @@ export default async function NewDashboardPage({ params }: Props) {
     <div>
       <PageHeader
         title="Novo dashboard"
-        description="Informe os dados, escolha a fonte e monte os widgets. Google Analytics e BigQuery virão em breve."
+        description="Informe os dados, escolha a fonte e monte os widgets."
         breadcrumbs={[
           { href: "/admin/clients", label: "Clientes" },
           { href: `/admin/clients/${client.slug}`, label: client.name },
@@ -35,6 +36,7 @@ export default async function NewDashboardPage({ params }: Props) {
         clientName={client.name}
         mockFiles={mockFiles}
         fieldMap={fieldMap}
+        bigQueryReady={bigQueryConfigured()}
       />
     </div>
   );

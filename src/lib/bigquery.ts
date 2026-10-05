@@ -3,10 +3,17 @@ import path from "path";
 import { BigQuery } from "@google-cloud/bigquery";
 import type { DataRow } from "./mock-loader";
 
+export type DashboardDataPage = {
+  id: string;
+  title: string;
+  views: string[];
+};
+
 export type BigQuerySource = {
   dataset: string;
   table: string;
   location?: string;
+  pages: DashboardDataPage[];
 };
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]{0,200}$/;
@@ -29,15 +36,41 @@ export function bigQueryConfigured(): boolean {
   return fs.existsSync(credentialsPath());
 }
 
+function cleanPages(value: unknown): DashboardDataPage[] {
+  if (!Array.isArray(value)) return [];
+  const pages: DashboardDataPage[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const page = item as { id?: unknown; title?: unknown; views?: unknown };
+    const id = typeof page.id === "string" ? page.id.trim() : "";
+    const title = typeof page.title === "string" ? page.title.trim() : "";
+    const views = Array.isArray(page.views)
+      ? page.views.filter((view): view is string => typeof view === "string" && IDENTIFIER.test(view))
+      : [];
+    if (!id || !title || !views.length) continue;
+    pages.push({ id, title, views });
+  }
+  return pages;
+}
+
 export function parseBigQuerySource(raw: string | null | undefined): BigQuerySource | null {
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as Partial<BigQuerySource>;
-    if (!parsed.dataset || !parsed.table) return null;
+    const parsed = JSON.parse(raw) as {
+      dataset?: string;
+      table?: string;
+      location?: string;
+      pages?: unknown;
+    };
+    if (!parsed.dataset) return null;
+    const pages = cleanPages(parsed.pages);
+    const table = parsed.table || pages[0]?.views[0] || "";
+    if (!table) return null;
     return {
       dataset: parsed.dataset,
-      table: parsed.table,
+      table,
       location: parsed.location,
+      pages: pages.length ? pages : [{ id: "principal", title: "Principal", views: [table] }],
     };
   } catch {
     return null;
@@ -116,7 +149,40 @@ export async function listBigQueryTables(datasetId: string): Promise<
   return listed.filter((item) => item.id).sort((a, b) => a.id.localeCompare(b.id));
 }
 
-export async function loadBigQueryTable(source: BigQuerySource): Promise<DataRow[]> {
+const NUMERIC_TYPES = new Set([
+  "INTEGER",
+  "INT64",
+  "FLOAT",
+  "FLOAT64",
+  "NUMERIC",
+  "BIGNUMERIC",
+  "DECIMAL",
+]);
+
+export async function describeBigQueryTable(
+  datasetId: string,
+  tableId: string
+): Promise<{ metrics: string[]; dimensions: string[] }> {
+  const dataset = assertIdentifier(datasetId, "Dataset");
+  const table = assertIdentifier(tableId, "View");
+  const [metadata] = await client().dataset(dataset).table(table).getMetadata();
+  const fields = (metadata.schema?.fields || []) as { name?: string; type?: string }[];
+  const metrics: string[] = [];
+  const dimensions: string[] = [];
+  for (const field of fields) {
+    const name = field.name || "";
+    if (!IDENTIFIER.test(name)) continue;
+    if (NUMERIC_TYPES.has(String(field.type || "").toUpperCase())) metrics.push(name);
+    else dimensions.push(name);
+  }
+  return { metrics, dimensions };
+}
+
+export async function loadBigQueryTable(source: {
+  dataset: string;
+  table: string;
+  location?: string;
+}): Promise<DataRow[]> {
   const projectId = bigQueryProjectId();
   if (!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(projectId)) {
     throw new Error("ID do projeto BigQuery inválido.");

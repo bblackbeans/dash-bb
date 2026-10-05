@@ -45,6 +45,8 @@ export type WidgetConfig = {
   align?: TextAlign;
   bold?: boolean;
   src?: string;
+  pageId?: string;
+  view?: string;
 };
 
 const FIELD_LABELS: Record<string, string> = {
@@ -97,7 +99,7 @@ function cleanKey(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const key = value.trim();
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) return undefined;
-  return key.slice(0, 40);
+  return key.slice(0, 200);
 }
 
 function cleanKeys(value: unknown, limit: number): string[] | undefined {
@@ -216,5 +218,10 @@ export function sanitizeWidgetConfig(type: string, input: unknown): WidgetConfig
     align,
     bold: src.bold === true ? true : undefined,
     src: cleanSrc(src.src),
+    pageId:
+      typeof src.pageId === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(src.pageId)
+        ? src.pageId
+        : undefined,
+    view: cleanKey(src.view),
   };
 }

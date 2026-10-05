@@ -12,6 +12,20 @@ export function snap(value: number): number {
   return Math.round(value / 8) * 8;
 }
 
+export function clampFrame(
+  frame: WidgetFrame,
+  bounds: { width: number; height: number }
+): WidgetFrame {
+  const w = Math.min(Math.max(120, frame.w), bounds.width);
+  const h = Math.min(Math.max(72, frame.h), bounds.height);
+  return {
+    x: Math.min(Math.max(0, frame.x), Math.max(0, bounds.width - w)),
+    y: Math.min(Math.max(0, frame.y), Math.max(0, bounds.height - h)),
+    w,
+    h,
+  };
+}
+
 export function sizeFor(type: string, span: 1 | 2 | 4): { w: number; h: number } {
   const inner = CANVAS_WIDTH - PAD * 2;
   const col = (inner - GAP * 3) / 4;
@@ -80,7 +94,7 @@ export function artboardHeight(
   for (const widget of widgets) {
     const frame = parseWidgetConfig(widget.configJson).frame;
     if (!frame) continue;
-    height = Math.max(height, frame.y + frame.h + PAD);
+    height = Math.max(height, frame.y + frame.h);
   }
   return height;
 }

@@ -43,6 +43,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   DashboardViewer,
+  type DashboardPageTab,
   type WidgetDTO,
   type WidgetEditApi,
 } from "@/components/dashboard/dashboard-viewer";
@@ -91,6 +92,8 @@ export function DashboardBuilder({
   title,
   subtitle,
   rows,
+  rowsByView,
+  pages,
   initialWidgets,
   initialTheme,
   initialTemplates,
@@ -101,13 +104,15 @@ export function DashboardBuilder({
   title: string;
   subtitle?: string;
   rows: DataRow[];
+  rowsByView?: Record<string, DataRow[]>;
+  pages?: DashboardPageTab[];
   initialWidgets: WidgetDTO[];
   initialTheme: DashboardTheme;
   initialTemplates: DashboardTemplateDTO[];
 }) {
   const router = useRouter();
-  const fields = useMemo(() => inferFields(rows), [rows]);
   const [editing, setEditing] = useState(false);
+  const [pageId, setPageId] = useState(pages?.[0]?.id || "");
   const [studioOpen, setStudioOpen] = useState(true);
   const [widgets, setWidgets] = useState(() => ensureFrames(initialWidgets));
   const [theme, setTheme] = useState(initialTheme);
@@ -130,6 +135,12 @@ export function DashboardBuilder({
 
   const selected = widgets.find((widget) => widget.id === selectedId) || null;
   const selectedConfig = selected ? parseWidgetConfig(selected.configJson) : null;
+  const activePage = pages?.find((page) => page.id === pageId) || pages?.[0];
+  const activeView = selectedConfig?.view || activePage?.views[0] || "";
+  const fields = useMemo(() => {
+    if (rowsByView && activeView && rowsByView[activeView]) return inferFields(rowsByView[activeView]);
+    return inferFields(rows);
+  }, [activeView, rows, rowsByView]);
 
   function remember() {
     setPast((current) => [...current, snapshotOf(widgets, theme)].slice(-20));
@@ -251,7 +262,11 @@ export function DashboardBuilder({
     const metric = fields.metrics.includes("leads") ? "leads" : fields.metrics[0] || "leads";
     const date = fields.dimensions.includes("date") ? "date" : fields.dimensions[0] || "date";
     const category = fields.dimensions.find((field) => field !== "date") || "campaign";
-    const config: WidgetConfig = { colSpan: defaultColSpan(type) };
+    const config: WidgetConfig = {
+      colSpan: defaultColSpan(type),
+      pageId: activePage?.id,
+      view: activeView || undefined,
+    };
     const meta = PALETTE.find((item) => item.type === type);
     if (type === "kpi") {
       config.metric = metric;
@@ -282,6 +297,8 @@ export function DashboardBuilder({
     }
     const size = sizeFor(type, defaultColSpan(type));
     const y = widgets.reduce((max, widget) => {
+      const config = parseWidgetConfig(widget.configJson);
+      if (activePage && (config.pageId || pages?.[0]?.id) !== activePage.id) return max;
       const frame = parseWidgetConfig(widget.configJson).frame;
       return frame ? Math.max(max, frame.y + frame.h + 16) : max;
     }, 24);
@@ -574,6 +591,17 @@ export function DashboardBuilder({
                   </>
                 ) : null}
 
+                {tab === "dados" && activePage && activePage.views.length > 1 ? (
+                  <FieldSelect
+                    label="View"
+                    value={selectedConfig.view || activePage.views[0]}
+                    options={activePage.views.map(
+                      (view) => [view, view.replaceAll("_", " ")] as [string, string]
+                    )}
+                    onChange={(view) => updateConfig({ view })}
+                  />
+                ) : null}
+
                 {tab === "dados" &&
                 (selected.type === "kpi" || selected.type === "line" || selected.type === "bar" || selected.type === "pie") ? (
                   <FieldSelect
@@ -731,6 +759,13 @@ export function DashboardBuilder({
             title={title}
             subtitle={subtitle}
             rows={rows}
+            rowsByView={rowsByView}
+            pages={pages}
+            pageId={pageId}
+            onPageChange={(next) => {
+              setPageId(next);
+              setSelectedId(null);
+            }}
             widgets={widgets}
             theme={theme}
             edit={edit}

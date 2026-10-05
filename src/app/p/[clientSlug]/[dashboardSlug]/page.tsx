@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import { DashboardViewer } from "@/components/dashboard/dashboard-viewer";
+import { parseBigQuerySource } from "@/lib/bigquery";
 import { parseTheme } from "@/lib/dashboard-theme";
-import { loadDashboardRows } from "@/lib/load-dataset";
+import { loadDashboardViewRows } from "@/lib/load-dataset";
 import { prisma } from "@/lib/prisma";
 
 type Props = {
@@ -20,13 +21,15 @@ export default async function PublicDashboardPage({ params }: Props) {
   });
   if (!dashboard) notFound();
 
-  let rows: Awaited<ReturnType<typeof loadDashboardRows>> = [];
+  const source = parseBigQuerySource(dashboard.sourceJson);
+  let rowsByView: Record<string, Awaited<ReturnType<typeof loadDashboardViewRows>>[string]> = {};
   let sourceError = "";
   try {
-    rows = await loadDashboardRows(dashboard);
+    rowsByView = await loadDashboardViewRows(dashboard);
   } catch (error) {
     sourceError = error instanceof Error ? error.message : "Não foi possível ler os dados.";
   }
+  const rows = source ? rowsByView[source.table] || [] : rowsByView.mock || [];
   if (sourceError) {
     return (
       <main className="mx-auto w-full max-w-[1240px] px-6 py-16">
@@ -50,6 +53,8 @@ export default async function PublicDashboardPage({ params }: Props) {
         title={dashboard.title}
         subtitle={dashboard.client.name}
         rows={rows}
+        rowsByView={dashboard.dataSource === "bigquery" ? rowsByView : undefined}
+        pages={source && source.pages.length > 1 ? source.pages : undefined}
         widgets={dashboard.widgets}
         theme={parseTheme(dashboard.themeJson)}
         readOnly

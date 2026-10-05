@@ -13,7 +13,7 @@ import {
 } from "@/lib/bigquery";
 import { parseTheme } from "@/lib/dashboard-theme";
 import { BUILTIN_TEMPLATES, templateFromRecord } from "@/lib/dashboard-templates";
-import { loadDashboardRows } from "@/lib/load-dataset";
+import { loadDashboardViewRows } from "@/lib/load-dataset";
 import { prisma } from "@/lib/prisma";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,13 +33,14 @@ export default async function AdminDashboardPage({ params }: Props) {
   if (!dashboard) notFound();
 
   const source = parseBigQuerySource(dashboard.sourceJson);
-  let rows: Awaited<ReturnType<typeof loadDashboardRows>> = [];
+  let rowsByView: Record<string, Awaited<ReturnType<typeof loadDashboardViewRows>>[string]> = {};
   let sourceError = "";
   try {
-    rows = await loadDashboardRows(dashboard);
+    rowsByView = await loadDashboardViewRows(dashboard);
   } catch (error) {
     sourceError = error instanceof Error ? error.message : "Não foi possível ler a fonte de dados.";
   }
+  const rows = source ? rowsByView[source.table] || [] : rowsByView.mock || [];
   const savedTemplates = await prisma.dashboardTemplate.findMany({
     orderBy: { createdAt: "desc" },
   });
@@ -138,6 +139,7 @@ export default async function AdminDashboardPage({ params }: Props) {
         connectionError={dashboard.dataSource === "bigquery" ? sourceError : ""}
         dataset={source?.dataset || ""}
         table={source?.table || ""}
+        pages={source?.pages || []}
       />
 
       <DashboardBuilder
@@ -147,6 +149,8 @@ export default async function AdminDashboardPage({ params }: Props) {
         title={dashboard.title}
         subtitle={`${dashboard.client.name} · /p/${dashboard.client.slug}/${dashboard.slug}`}
         rows={rows}
+        rowsByView={dashboard.dataSource === "bigquery" ? rowsByView : undefined}
+        pages={source && source.pages.length > 1 ? source.pages : undefined}
         initialTheme={parseTheme(dashboard.themeJson)}
         initialTemplates={templates}
         initialWidgets={[...dashboard.widgets]

@@ -13,11 +13,15 @@ import {
   Check,
   Lock,
   Upload,
+  Loader2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import {
   createDashboardFromWizard,
+  describeBigQueryTableAction,
+  listBigQueryDatasetsAction,
+  listBigQueryTablesAction,
   uploadMockJsonAction,
   type WidgetInput,
 } from "@/lib/actions";
@@ -41,7 +45,21 @@ type WidgetDraft = {
   metric: string;
   dimension: string;
   format?: string;
+  columns?: string[];
+  hint?: string;
+  pageId?: string;
+  view?: string;
 };
+
+type PageDraft = {
+  id: string;
+  title: string;
+  views: string[];
+};
+
+function blankPage(): PageDraft {
+  return { id: `pagina${Date.now().toString(36)}`, title: "", views: [] };
+}
 
 const TYPE_META: Record<
   string,
@@ -49,30 +67,138 @@ const TYPE_META: Record<
 > = {
   kpi: {
     label: "KPI",
-    help: "Número grande para uma métrica (ex.: sessões, receita).",
+    help: "Um número só. Use quando a coluna pode ser somada, como impressões, cliques ou gasto. Não serve para taxa (frequência, CTR, CPC).",
     icon: Gauge,
   },
   line: {
     label: "Linha",
-    help: "Evolução da métrica ao longo de uma dimensão (geralmente data).",
+    help: "A mesma métrica ao longo dos dias. Use quando a view tem coluna de data e você quer ver a tendência.",
     icon: LineChart,
   },
   bar: {
     label: "Barras",
-    help: "Compara a métrica entre categorias (página, origem, etc.).",
+    help: "Compara categorias, como tipo de ação, campanha ou termo de busca. Use quando o valor muda de um grupo para outro.",
     icon: BarChart3,
   },
   pie: {
     label: "Pizza",
-    help: "Participação percentual de cada categoria na métrica.",
+    help: "Participação de poucas categorias no total. Use só quando há poucos grupos. Com muitos tipos, prefira barras.",
     icon: PieChart,
   },
   table: {
     label: "Tabela",
-    help: "Detalhamento linha a linha do dataset filtrado.",
+    help: "Lista várias colunas juntas. Use em cadastros e detalhes (campanha, anúncio, criativo), quando somar não responde a pergunta.",
     icon: Table2,
   },
 };
+
+const RATE_METRIC = /frequency|ctr|cpc|cpm|cpp|rate|roas|cost_per|percent/i;
+const MONEY_METRIC = /spend|cost|amount|budget|revenue|action_values_value/i;
+
+function pickMetric(metrics: string[]): string {
+  const usable = metrics.filter((metric) => !RATE_METRIC.test(metric));
+  const preferred = [
+    "impressions",
+    "metrics_impressions",
+    "spend",
+    "metrics_cost",
+    "clicks",
+    "metrics_clicks",
+    "reach",
+    "reactions",
+    "actions_value",
+    "action_values_value",
+    "totalbudget_amount",
+  ];
+  for (const name of preferred) {
+    if (usable.includes(name)) return name;
+  }
+  const volume = usable.find((metric) =>
+    /impressions|clicks|spend|reach|reactions|conversions|sessions|revenue|amount|cost|value|leads/i.test(metric)
+  );
+  return volume || usable[0] || metrics[0] || "";
+}
+
+function pickDate(dimensions: string[]): string {
+  return (
+    dimensions.find((dimension) => /^(date|metric_date|day)$/i.test(dimension) || /date/i.test(dimension)) ||
+    ""
+  );
+}
+
+function pickCategory(dimensions: string[]): string {
+  return (
+    dimensions.find((dimension) => /actions_action_type|action_values_action_type/i.test(dimension)) ||
+    dimensions.find((dimension) => /searchterm/i.test(dimension)) ||
+    dimensions.find((dimension) => /keyword/i.test(dimension) && !/date/i.test(dimension)) ||
+    dimensions.find((dimension) => /_name$/i.test(dimension) && !/url|thumbnail|currency/i.test(dimension)) ||
+    ""
+  );
+}
+
+function tableColumns(metrics: string[], dimensions: string[]): string[] {
+  const picked = [
+    pickDate(dimensions),
+    ...dimensions.filter((dimension) => /action_type|search_term|keyword|_name$|status/i.test(dimension)).slice(0, 4),
+    ...metrics.filter((metric) => !RATE_METRIC.test(metric)).slice(0, 3),
+  ].filter(Boolean);
+  const unique = [...new Set(picked)];
+  if (unique.length) return unique.slice(0, 8);
+  return [...dimensions, ...metrics].slice(0, 8);
+}
+
+function suggestChart(
+  view: string,
+  metrics: string[],
+  dimensions: string[]
+): Pick<WidgetDraft, "type" | "metric" | "dimension" | "columns" | "hint"> {
+  const metric = pickMetric(metrics);
+  const date = pickDate(dimensions);
+  const category = pickCategory(dimensions);
+  const catalog = /_details$/.test(view) || (metrics.length <= 3 && dimensions.length >= 8 && !date);
+  if (!metrics.length || catalog) {
+    return {
+      type: "table",
+      metric: "",
+      dimension: "",
+      columns: tableColumns(metrics, dimensions),
+      hint: "Cadastro com várias colunas. A tabela mostra o registro em vez de somar um número.",
+    };
+  }
+  const breakdown = dimensions.find((dimension) =>
+    /actions_action_type|action_values_action_type|searchterm/i.test(dimension)
+  );
+  if ((/action_values|_actions$|search_terms/i.test(view) || breakdown) && (breakdown || category)) {
+    return {
+      type: "bar",
+      metric,
+      dimension: breakdown || category,
+      hint: "Os valores estão quebrados por categoria. Barras comparam um grupo com o outro.",
+    };
+  }
+  if (date) {
+    return {
+      type: "line",
+      metric,
+      dimension: date,
+      hint: "Existe coluna de data. A linha mostra como a métrica anda ao longo do tempo.",
+    };
+  }
+  if (category) {
+    return {
+      type: "bar",
+      metric,
+      dimension: category,
+      hint: "Dá para agrupar por nome ou tipo. Barras comparam essas categorias.",
+    };
+  }
+  return {
+    type: "kpi",
+    metric,
+    dimension: "",
+    hint: "A view entrega um volume que faz sentido somar. O KPI mostra esse total.",
+  };
+}
 
 function defaultWidgets(metrics: string[], dimensions: string[]): WidgetDraft[] {
   const m = metrics[0] || "sessions";
@@ -140,6 +266,7 @@ type Props = {
   clientName: string;
   mockFiles: string[];
   fieldMap: Record<string, { metrics: string[]; dimensions: string[] }>;
+  bigQueryReady: boolean;
 };
 
 export function DashboardWizard({
@@ -148,6 +275,7 @@ export function DashboardWizard({
   clientName,
   mockFiles: initialMockFiles,
   fieldMap: initialFieldMap,
+  bigQueryReady,
 }: Props) {
   const [step, setStep] = useState(1);
   const [title, setTitle] = useState("");
@@ -160,7 +288,24 @@ export function DashboardWizard({
   const [mockPath, setMockPath] = useState(
     initialMockFiles[0] || "johnson-traffic.json"
   );
-  const fields = fieldMap[mockPath] || { metrics: [], dimensions: [] };
+  const [datasets, setDatasets] = useState<string[]>([]);
+  const [tables, setTables] = useState<{ id: string; type: string }[]>([]);
+  const [datasetId, setDatasetId] = useState("");
+  const [tableId, setTableId] = useState("");
+  const [pages, setPages] = useState<PageDraft[]>([]);
+  const [viewFields, setViewFields] = useState<
+    Record<string, { metrics: string[]; dimensions: string[] }>
+  >({});
+  const [bqFields, setBqFields] = useState<{ metrics: string[]; dimensions: string[] }>({
+    metrics: [],
+    dimensions: [],
+  });
+  const [bqLoading, setBqLoading] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+  const fields =
+    dataSource === "bigquery"
+      ? bqFields
+      : fieldMap[mockPath] || { metrics: [], dimensions: [] };
   const [widgets, setWidgets] = useState<WidgetDraft[]>(() =>
     defaultWidgets(fields.metrics, fields.dimensions)
   );
@@ -184,6 +329,53 @@ export function DashboardWizard({
   function onTitleChange(value: string) {
     setTitle(value);
     if (!slugTouched) setSlug(slugify(value));
+  }
+
+  async function chooseBigQuery() {
+    setDataSource("bigquery");
+    setError("");
+    if (!bigQueryReady || datasets.length) return;
+    setBqLoading(true);
+    const result = await listBigQueryDatasetsAction();
+    setBqLoading(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setDatasets(result.datasets);
+  }
+
+  async function onDatasetChange(nextDataset: string) {
+    setDatasetId(nextDataset);
+    setTableId("");
+    setTables([]);
+    setBqFields({ metrics: [], dimensions: [] });
+    if (!nextDataset) return;
+    setBqLoading(true);
+    setError("");
+    const result = await listBigQueryTablesAction(nextDataset);
+    setBqLoading(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setTables(result.tables);
+    setPages([blankPage()]);
+  }
+
+  async function onTableChange(nextTable: string) {
+    setTableId(nextTable);
+    if (!datasetId || !nextTable) return;
+    setBqLoading(true);
+    setError("");
+    const result = await describeBigQueryTableAction(datasetId, nextTable);
+    setBqLoading(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setBqFields({ metrics: result.metrics, dimensions: result.dimensions });
+    setWidgets(defaultWidgets(result.metrics, result.dimensions));
   }
 
   function onMockChange(path: string) {
@@ -223,6 +415,46 @@ export function DashboardWizard({
     );
   }
 
+  function changeWidgetType(widget: WidgetDraft, type: string) {
+    const source =
+      dataSource === "bigquery" && widget.view
+        ? viewFields[widget.view] || { metrics: [], dimensions: [] }
+        : fields;
+    const metric = widget.metric || pickMetric(source.metrics);
+    const date = pickDate(source.dimensions);
+    const category = pickCategory(source.dimensions);
+    if (type === "table") {
+      updateWidget(widget.id, {
+        type,
+        metric: "",
+        dimension: "",
+        columns: tableColumns(source.metrics, source.dimensions),
+        hint: TYPE_META.table.help,
+      });
+      return;
+    }
+    if (type === "kpi") {
+      updateWidget(widget.id, {
+        type,
+        metric,
+        dimension: "",
+        columns: undefined,
+        hint: TYPE_META.kpi.help,
+      });
+      return;
+    }
+    updateWidget(widget.id, {
+      type,
+      metric,
+      dimension:
+        type === "line"
+          ? date || category || source.dimensions[0] || ""
+          : category || date || source.dimensions[0] || "",
+      columns: undefined,
+      hint: TYPE_META[type]?.help,
+    });
+  }
+
   function goNext() {
     setError("");
     if (step === 1) {
@@ -230,8 +462,21 @@ export function DashboardWizard({
         setError("Informe o título do dashboard.");
         return;
       }
-      if (dataSource !== "mock") {
-        setError("Selecione Dataset JSON por enquanto (GA e BigQuery em breve).");
+      if (dataSource === "ga") {
+        setError("Google Analytics ainda não está disponível.");
+        return;
+      }
+      if (dataSource === "bigquery") {
+        const selected = pages.filter((page) => page.title.trim() && page.views.length);
+        if (!datasetId || !selected.length) {
+          setError("Dê um nome à página e marque ao menos uma view.");
+          return;
+        }
+        if (pages.some((page) => page.views.length > 0 && !page.title.trim())) {
+          setError("Dê um nome para cada página que tiver views marcadas.");
+          return;
+        }
+        void prepareBigQueryWidgets(selected);
         return;
       }
       setStep(2);
@@ -246,6 +491,65 @@ export function DashboardWizard({
     }
   }
 
+  async function prepareBigQueryWidgets(selected: PageDraft[]) {
+    const unique = [...new Set(selected.flatMap((page) => page.views))];
+    setPreparing(true);
+    try {
+      const described = await Promise.all(
+        unique.map(async (view) => {
+          const result = await describeBigQueryTableAction(datasetId, view);
+          return [
+            view,
+            result.ok
+              ? { metrics: result.metrics, dimensions: result.dimensions }
+              : { metrics: [] as string[], dimensions: [] as string[] },
+          ] as const;
+        })
+      );
+      const map = Object.fromEntries(described);
+      setViewFields(map);
+      const drafts: WidgetDraft[] = [];
+      for (const page of selected) {
+        for (const view of page.views) {
+          const fieldsForView = map[view] || { metrics: [], dimensions: [] };
+          if (!fieldsForView.metrics.length && !fieldsForView.dimensions.length) continue;
+          const suggestion = suggestChart(view, fieldsForView.metrics, fieldsForView.dimensions);
+          drafts.push({
+            id: `${page.id}-${view}`,
+            enabled: true,
+            title: view.replaceAll("_", " "),
+            pageId: page.id,
+            view,
+            ...suggestion,
+          });
+        }
+      }
+      if (!drafts.length) {
+        setError("Nenhuma view marcada tem colunas legíveis.");
+        return;
+      }
+      setWidgets(drafts);
+      setStep(2);
+    } finally {
+      setPreparing(false);
+    }
+  }
+
+  function togglePageView(pageId: string, view: string) {
+    setPages((current) =>
+      current.map((page) => {
+        if (page.id === pageId) {
+          const has = page.views.includes(view);
+          return {
+            ...page,
+            views: has ? page.views.filter((item) => item !== view) : [...page.views, view],
+          };
+        }
+        return { ...page, views: page.views.filter((item) => item !== view) };
+      })
+    );
+  }
+
   function submit() {
     setError("");
     const payload: WidgetInput[] = enabledWidgets.map((w) => ({
@@ -253,7 +557,10 @@ export function DashboardWizard({
       title: w.title,
       metric: w.metric || undefined,
       dimension: w.dimension || undefined,
-      format: w.metric === "revenue" ? "currency" : undefined,
+      format: w.metric && MONEY_METRIC.test(w.metric) ? "currency" : undefined,
+      columns: w.type === "table" ? w.columns : undefined,
+      pageId: w.pageId,
+      view: w.view,
     }));
 
     startTransition(async () => {
@@ -263,8 +570,11 @@ export function DashboardWizard({
         title,
         slug: slug || title,
         description,
-        dataSource: "mock",
+        dataSource,
         mockPath,
+        dataset: datasetId,
+        table: pages.find((page) => page.views[0])?.views[0] || tableId,
+        pages: pages.filter((page) => page.views.length),
         widgets: payload,
       });
       if (!res.ok) {
@@ -349,7 +659,7 @@ export function DashboardWizard({
           </div>
 
           <div className="space-y-3">
-            <LabelWithHelp help="De onde os dados do dashboard virão. Hoje só Dataset JSON está ativo.">
+            <LabelWithHelp help="JSON local para prototipar, ou uma view do BigQuery.">
               Fonte de dados
             </LabelWithHelp>
             <div className="grid gap-3 md:grid-cols-3">
@@ -389,23 +699,28 @@ export function DashboardWizard({
                 </div>
               </Tooltip>
 
-              <Tooltip content="Em breve: leitura direta de tabelas no BigQuery.">
-                <div className="cursor-not-allowed rounded-[var(--bb-radius-xl)] border border-[var(--bb-border)] bg-black/20 p-4 opacity-70">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 text-[var(--bb-cream)]">
-                      <Database className="h-5 w-5" />
-                      <span className="font-medium">BigQuery</span>
-                    </div>
-                    <Badge tone="warning">Em breve</Badge>
-                  </div>
-                  <p className="text-xs text-[var(--bb-gray)]">
-                    Consultas em warehouse — arquitetura alvo da plataforma.
-                  </p>
-                  <p className="mt-2 inline-flex items-center gap-1 text-xs text-[var(--bb-gray)]">
-                    <Lock className="h-3 w-3" /> Indisponível no MVP
-                  </p>
+              <button
+                type="button"
+                onClick={() => void chooseBigQuery()}
+                disabled={!bigQueryReady}
+                className={`rounded-[var(--bb-radius-xl)] border p-4 text-left transition ${
+                  !bigQueryReady ? "cursor-not-allowed opacity-70" : "cursor-pointer"
+                } ${
+                  dataSource === "bigquery"
+                    ? "border-[var(--bb-accent)] bg-[var(--bb-accent)]/10"
+                    : "border-[var(--bb-border)] hover:border-[var(--bb-gray)]"
+                }`}
+              >
+                <div className="mb-2 flex items-center gap-2 text-[var(--bb-cream)]">
+                  <Database className="h-5 w-5 text-[var(--bb-accent)]" />
+                  <span className="font-medium">BigQuery</span>
                 </div>
-              </Tooltip>
+                <p className="text-xs text-[var(--bb-gray)]">
+                  {bigQueryReady
+                    ? "Escolha o dataset e a view do projeto black-beans-dados."
+                    : "Falta a chave da conta de serviço neste servidor."}
+                </p>
+              </button>
             </div>
           </div>
 
@@ -458,17 +773,114 @@ export function DashboardWizard({
               </div>
             </div>
           ) : null}
+
+          {dataSource === "bigquery" ? (
+            <div className="space-y-4">
+              <div>
+                <LabelWithHelp htmlFor="bqDataset" help="Todas as páginas deste dashboard usam views deste dataset.">
+                  Dataset
+                </LabelWithHelp>
+                <Select
+                  id="bqDataset"
+                  value={datasetId}
+                  disabled={bqLoading || !datasets.length}
+                  onChange={(event) => void onDatasetChange(event.target.value)}
+                >
+                  <option value="">{bqLoading && !datasets.length ? "Carregando..." : "Escolher"}</option>
+                  {datasets.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              {pages.length ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm text-[var(--bb-cream)]">Páginas</p>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() =>
+                        setPages((current) => [...current, blankPage()])
+                      }
+                    >
+                      Adicionar página
+                    </Button>
+                  </div>
+                  {pages.map((page) => (
+                    <div key={page.id} className="rounded-[var(--bb-radius)] border border-[var(--bb-border)] p-4">
+                      <div className="mb-3 flex items-center gap-3">
+                        <Input
+                          value={page.title}
+                          placeholder="Nome da página"
+                          onChange={(event) =>
+                            setPages((current) =>
+                              current.map((item) =>
+                                item.id === page.id ? { ...item, title: event.target.value } : item
+                              )
+                            )
+                          }
+                        />
+                        {pages.length > 1 ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setPages((current) => current.filter((item) => item.id !== page.id))}
+                          >
+                            Remover
+                          </Button>
+                        ) : null}
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {tables.map((table) => (
+                          <label key={table.id} className="flex items-center gap-2 text-sm text-[var(--bb-cream)]">
+                            <input
+                              type="checkbox"
+                              checked={page.views.includes(table.id)}
+                              onChange={() => togglePageView(page.id, table.id)}
+                            />
+                            {table.id}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </Card>
       ) : null}
 
       {step === 2 ? (
         <div className="space-y-3">
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+            {Object.entries(TYPE_META).map(([type, meta]) => {
+              const Icon = meta.icon;
+              return (
+                <div key={type} className="rounded-[var(--bb-radius)] border border-[var(--bb-border)] bg-[#141312] p-3">
+                  <p className="flex items-center gap-2 text-sm font-medium text-[var(--bb-cream)]">
+                    <Icon className="h-4 w-4 text-[var(--bb-accent)]" />
+                    {meta.label}
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-[var(--bb-gray)]">{meta.help}</p>
+                </div>
+              );
+            })}
+          </div>
           <p className="text-sm text-[var(--bb-gray)]">
-            Ative os widgets e ajuste métrica/dimensão. Cliente: {clientName}.
+            Cada view entrou no tipo que combina com as colunas dela. Dá para trocar. Cliente: {clientName}.
           </p>
           {widgets.map((w) => {
             const meta = TYPE_META[w.type];
             const Icon = meta.icon;
+            const widgetFields =
+              dataSource === "bigquery" && w.view
+                ? viewFields[w.view] || { metrics: [], dimensions: [] }
+                : fields;
             return (
               <Card key={w.id} className="p-4">
                 <div className="flex flex-wrap items-start gap-4">
@@ -487,7 +899,23 @@ export function DashboardWizard({
                       </span>
                     </Tooltip>
                   </label>
-                  <div className="grid flex-1 gap-3 sm:grid-cols-3">
+                  <div className="grid flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div>
+                      <LabelWithHelp help="Troque se quiser outro jeito de ver a mesma view.">
+                        Tipo
+                      </LabelWithHelp>
+                      <Select
+                        value={w.type}
+                        disabled={!w.enabled}
+                        onChange={(event) => changeWidgetType(w, event.target.value)}
+                      >
+                        {Object.entries(TYPE_META).map(([type, item]) => (
+                          <option key={type} value={type}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
                     <div>
                       <LabelWithHelp help="Título exibido acima do gráfico ou KPI.">
                         Título
@@ -512,7 +940,7 @@ export function DashboardWizard({
                             updateWidget(w.id, { metric: e.target.value })
                           }
                         >
-                          {fields.metrics.map((m) => (
+                          {widgetFields.metrics.map((m) => (
                             <option key={m} value={m}>
                               {m}
                             </option>
@@ -532,7 +960,7 @@ export function DashboardWizard({
                             updateWidget(w.id, { dimension: e.target.value })
                           }
                         >
-                          {fields.dimensions.map((d) => (
+                          {widgetFields.dimensions.map((d) => (
                             <option key={d} value={d}>
                               {d}
                             </option>
@@ -541,6 +969,7 @@ export function DashboardWizard({
                       </div>
                     ) : null}
                   </div>
+                  {w.hint ? <p className="mt-3 w-full text-xs text-[var(--bb-gray)]">{w.hint}</p> : null}
                 </div>
               </Card>
             );
@@ -564,7 +993,14 @@ export function DashboardWizard({
             </div>
             <div>
               <dt className="text-[var(--bb-gray)]">Fonte</dt>
-              <dd>Dataset JSON · {mockPath}</dd>
+              <dd>
+                {dataSource === "bigquery"
+                  ? pages
+                      .filter((page) => page.views.length)
+                      .map((page) => `${page.title}: ${page.views.join(", ")}`)
+                      .join(" · ")
+                  : `Dataset JSON · ${mockPath}`}
+              </dd>
             </div>
             <div>
               <dt className="text-[var(--bb-gray)]">Widgets</dt>
@@ -590,6 +1026,19 @@ export function DashboardWizard({
         </Card>
       ) : null}
 
+      {preparing ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-center gap-3 rounded-[var(--bb-radius-xl)] border border-[var(--bb-border)] bg-[#141312] px-5 py-4 text-sm text-[var(--bb-cream)] shadow-2xl">
+            <Loader2 className="h-5 w-5 animate-spin text-[var(--bb-accent)]" />
+            Lendo as colunas das views…
+          </div>
+        </div>
+      ) : null}
+
       {error ? (
         <p className="rounded-[var(--bb-radius)] border border-red-400/40 bg-red-400/10 px-3 py-2 text-sm text-red-300">
           {error}
@@ -609,9 +1058,18 @@ export function DashboardWizard({
           Voltar
         </Button>
         {step < 3 ? (
-          <Button onClick={goNext}>
-            Continuar
-            <ChevronRight className="h-4 w-4" />
+          <Button onClick={goNext} disabled={preparing || bqLoading}>
+            {preparing ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Lendo views…
+              </>
+            ) : (
+              <>
+                Continuar
+                <ChevronRight className="h-4 w-4" />
+              </>
+            )}
           </Button>
         ) : (
           <Button onClick={submit} disabled={pending}>

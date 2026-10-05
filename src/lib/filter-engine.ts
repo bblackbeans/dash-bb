@@ -128,8 +128,9 @@ export function filterDataset(
 ): DataRow[] {
   const range = resolveDateRange(filters, today);
   return rows.filter((row) => {
-    if (range && !inDateRange(row, range.start, range.end)) return false;
+    if (range && "date" in row && !inDateRange(row, range.start, range.end)) return false;
     for (const [key, selected] of Object.entries(filters.facets)) {
+      if (!(key in row)) continue;
       if (!matchesMulti(row[key], selected)) return false;
     }
     return true;

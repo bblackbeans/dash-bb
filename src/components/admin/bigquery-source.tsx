@@ -21,6 +21,7 @@ type Props = {
   connectionError?: string;
   dataset: string;
   table: string;
+  pages?: { id: string; title: string; views: string[] }[];
 };
 
 export function BigQuerySource({
@@ -32,6 +33,7 @@ export function BigQuerySource({
   connectionError,
   dataset,
   table,
+  pages = [],
 }: Props) {
   const router = useRouter();
   const [datasets, setDatasets] = useState<string[]>([]);
@@ -41,6 +43,7 @@ export function BigQuerySource({
   const [error, setError] = useState(connectionError || "");
   const [pending, setPending] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   async function loadDatasets() {
     setPending(true);
@@ -90,24 +93,43 @@ export function BigQuerySource({
     router.refresh();
   }
 
+  const pageCount = pages.length;
+  const viewCount = pages.reduce((total, page) => total + page.views.length, 0);
+
   return (
-    <Card className="p-5">
-      <div className="mb-3 flex items-center gap-2 text-[var(--bb-cream)]">
-        <Database className="h-4 w-4 text-[var(--bb-accent)]" />
-        <h2 className="text-sm font-medium">BigQuery · {projectId}</h2>
+    <Card className="bb-dash-source px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2 text-sm text-[var(--bb-cream)]">
+          <Database className="h-4 w-4 shrink-0 text-[var(--bb-accent)]" />
+          <p className="truncate">
+            BigQuery · {dataset || projectId}
+            {pageCount > 1 ? ` · ${pageCount} páginas · ${viewCount} views` : table ? ` · ${table}` : ""}
+          </p>
+        </div>
+        {pageCount > 1 ? (
+          <Button type="button" variant="ghost" size="sm" onClick={() => setDetailsOpen((open) => !open)}>
+            {detailsOpen ? "Ocultar views" : "Ver views"}
+          </Button>
+        ) : null}
       </div>
-      <p className="mb-4 text-sm text-[var(--bb-gray)]">
-        Os datasets seguem <span className="text-[var(--bb-cream)]">dataset_</span> + cliente.
-        Para Johnson, use o dataset JNJ 2026 e a view da campanha. O filtro do painel separa os conjuntos pelo ID do conjunto.
-      </p>
-      {dataset && table ? (
+      {detailsOpen && pageCount > 1 ? (
+        <ul className="mt-3 space-y-2 text-sm text-[var(--bb-cream)]">
+          {pages.map((page) => (
+            <li key={page.id}>
+              <span className="font-medium">{page.title}:</span>{" "}
+              <span className="text-[var(--bb-gray)]">{page.views.join(", ")}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {pages.length > 1 ? null : dataset && table ? (
         <p className="mb-4 text-sm text-[var(--bb-cream)]">
           Fonte atual: {dataset}.{table}
         </p>
       ) : (
         <p className="mb-4 text-sm text-[var(--bb-gray)]">Este dashboard ainda usa o JSON local.</p>
       )}
-      {configured ? (
+      {pages.length > 1 ? null : configured ? (
         <div className="flex flex-wrap items-end gap-3">
           {!loaded ? (
             <Button type="button" variant="secondary" onClick={loadDatasets} disabled={pending}>
