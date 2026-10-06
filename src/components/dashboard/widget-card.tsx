@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Bar,
   BarChart,
@@ -57,6 +58,91 @@ const chartTooltip = {
   labelStyle: { color: "#000000" },
   itemStyle: { color: "#000000" },
 };
+
+export function formatTableCell(column: string, value: unknown): string {
+  if (value == null || value === "") return "";
+  if (typeof value !== "number" || !Number.isFinite(value)) return String(value);
+  if (/spend|cost|cpc|cpm|cpp|amount|budget|revenue/i.test(column)) {
+    return value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  if (Number.isInteger(value)) return value.toLocaleString("pt-BR");
+  return value.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+}
+
+function compareCells(a: unknown, b: unknown): number {
+  const emptyA = a == null || a === "";
+  const emptyB = b == null || b === "";
+  if (emptyA || emptyB) return emptyA === emptyB ? 0 : emptyA ? 1 : -1;
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  return String(a).localeCompare(String(b), "pt-BR", { numeric: true, sensitivity: "base" });
+}
+
+function TableView({
+  columns,
+  rows,
+  labels,
+  muted,
+}: {
+  columns: string[];
+  rows: DataRow[];
+  labels: Record<string, string> | undefined;
+  muted: string;
+}) {
+  const [sort, setSort] = useState<{ column: string; direction: "asc" | "desc" } | null>(null);
+  const ordered = [...rows];
+  if (sort) {
+    ordered.sort((a, b) => {
+      const result = compareCells(a[sort.column], b[sort.column]);
+      return sort.direction === "asc" ? result : -result;
+    });
+  }
+  const shown = ordered.slice(0, 40);
+
+  return (
+    <div className="h-full overflow-auto">
+      <table className="min-w-full text-left text-sm">
+        <thead className="text-xs uppercase" style={{ color: muted }}>
+          <tr>
+            {columns.map((column) => {
+              const active = sort?.column === column;
+              const arrow = active ? (sort.direction === "asc" ? " ↑" : " ↓") : "";
+              return (
+                <th key={column} className="px-2 py-2 font-medium">
+                  <button
+                    type="button"
+                    className="cursor-pointer text-left"
+                    style={{ color: "inherit" }}
+                    onClick={() =>
+                      setSort((current) =>
+                        current?.column === column
+                          ? { column, direction: current.direction === "asc" ? "desc" : "asc" }
+                          : { column, direction: "asc" }
+                      )
+                    }
+                  >
+                    {labels?.[column] || fieldLabel(column)}
+                    {arrow}
+                  </button>
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {shown.map((row, idx) => (
+            <tr key={idx} style={{ borderTop: `1px solid ${muted}33` }}>
+              {columns.map((column) => (
+                <td key={column} className="px-2 py-2 whitespace-nowrap">
+                  {formatTableCell(column, row[column])}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 function formatValue(value: number, format?: string) {
   if (format === "currency") {
@@ -312,30 +398,12 @@ function ChartBody({
   if (widget.type === "table") {
     const columns = config.columns || Object.keys(rows[0] || {});
     return (
-      <div className="h-full overflow-auto">
-        <table className="min-w-full text-left text-sm">
-          <thead className="text-xs uppercase" style={{ color: look.muted }}>
-            <tr>
-              {columns.map((column) => (
-                <th key={column} className="px-2 py-2 font-medium">
-                  {config.columnLabels?.[column] || fieldLabel(column)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.slice(0, 40).map((row, idx) => (
-              <tr key={idx} style={{ borderTop: `1px solid ${look.muted}33` }}>
-                {columns.map((column) => (
-                  <td key={column} className="px-2 py-2 whitespace-nowrap">
-                    {String(row[column] ?? "")}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <TableView
+        columns={columns}
+        rows={rows}
+        labels={config.columnLabels}
+        muted={look.muted}
+      />
     );
   }
 
