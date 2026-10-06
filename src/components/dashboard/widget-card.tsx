@@ -69,11 +69,22 @@ export function formatTableCell(column: string, value: unknown): string {
   return value.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 }
 
+function asNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
 function compareCells(a: unknown, b: unknown): number {
   const emptyA = a == null || a === "";
   const emptyB = b == null || b === "";
   if (emptyA || emptyB) return emptyA === emptyB ? 0 : emptyA ? 1 : -1;
-  if (typeof a === "number" && typeof b === "number") return a - b;
+  const numA = asNumber(a);
+  const numB = asNumber(b);
+  if (numA != null && numB != null) return numA - numB;
   return String(a).localeCompare(String(b), "pt-BR", { numeric: true, sensitivity: "base" });
 }
 
@@ -92,7 +103,12 @@ function TableView({
   const ordered = [...rows];
   if (sort) {
     ordered.sort((a, b) => {
-      const result = compareCells(a[sort.column], b[sort.column]);
+      const left = a[sort.column];
+      const right = b[sort.column];
+      const emptyA = left == null || left === "";
+      const emptyB = right == null || right === "";
+      if (emptyA || emptyB) return emptyA === emptyB ? 0 : emptyA ? 1 : -1;
+      const result = compareCells(left, right);
       return sort.direction === "asc" ? result : -result;
     });
   }
@@ -105,23 +121,29 @@ function TableView({
           <tr>
             {columns.map((column) => {
               const active = sort?.column === column;
-              const arrow = active ? (sort.direction === "asc" ? " ↑" : " ↓") : "";
+              const largestFirst = !active || sort.direction === "desc";
               return (
-                <th key={column} className="px-2 py-2 font-medium">
+                <th
+                  key={column}
+                  className="whitespace-nowrap px-2 py-2 font-medium"
+                  aria-sort={active ? (sort.direction === "desc" ? "descending" : "ascending") : "none"}
+                >
                   <button
                     type="button"
-                    className="cursor-pointer text-left"
+                    className="inline-flex items-center gap-1 whitespace-nowrap border-0 bg-transparent p-0 font-[inherit] uppercase leading-none"
                     style={{ color: "inherit" }}
                     onClick={() =>
                       setSort((current) =>
                         current?.column === column
-                          ? { column, direction: current.direction === "asc" ? "desc" : "asc" }
-                          : { column, direction: "asc" }
+                          ? { column, direction: current.direction === "desc" ? "asc" : "desc" }
+                          : { column, direction: "desc" }
                       )
                     }
                   >
                     {labels?.[column] || fieldLabel(column)}
-                    {arrow}
+                    <span className="inline-block w-3 text-center" aria-hidden>
+                      {active ? (largestFirst ? "↑" : "↓") : ""}
+                    </span>
                   </button>
                 </th>
               );
