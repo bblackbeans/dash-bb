@@ -47,6 +47,17 @@ export function resolveLook(
   };
 }
 
+const chartTooltip = {
+  contentStyle: {
+    background: "#ffffff",
+    border: "1px solid #e5e5e5",
+    borderRadius: 8,
+    color: "#000000",
+  },
+  labelStyle: { color: "#000000" },
+  itemStyle: { color: "#000000" },
+};
+
 function formatValue(value: number, format?: string) {
   if (format === "currency") {
     return value.toLocaleString("pt-BR", {
@@ -337,7 +348,7 @@ function ChartBody({
             <Cell key={index} fill={look.palette[index % look.palette.length] || accent} />
           ))}
         </Pie>
-        <Tooltip />
+        <Tooltip {...chartTooltip} />
         <Legend />
       </PieChart>
     );
@@ -353,7 +364,7 @@ function ChartBody({
         <CartesianGrid stroke={grid} />
         <XAxis dataKey="name" stroke={look.muted} fontSize={11} />
         <YAxis stroke={look.muted} fontSize={11} tickFormatter={tick} width={56} />
-        <Tooltip formatter={(value) => tick(Number(value))} />
+        <Tooltip {...chartTooltip} formatter={(value) => tick(Number(value))} />
         <Line type="monotone" dataKey="value" stroke={accent} strokeWidth={2} dot={false} />
       </LineChart>
     );
@@ -364,7 +375,7 @@ function ChartBody({
       <CartesianGrid stroke={grid} />
       <XAxis dataKey="name" stroke={look.muted} fontSize={11} />
       <YAxis stroke={look.muted} fontSize={11} tickFormatter={tick} width={48} />
-      <Tooltip formatter={(value) => tick(Number(value))} />
+      <Tooltip {...chartTooltip} formatter={(value) => tick(Number(value))} />
       <Bar dataKey="value" fill={accent} radius={[4, 4, 0, 0]} />
     </BarChart>
   );

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { FolderPlus, Trash2 } from "lucide-react";
+import { ClientSettings } from "@/components/admin/client-settings";
 import { createClientAction, deleteClientAction } from "@/lib/actions";
 import { prisma } from "@/lib/prisma";
 import { Badge } from "@/components/ui/badge";
@@ -81,7 +82,9 @@ export default async function ClientsPage() {
                   </Badge>
                 </p>
               </div>
-              <form action={deleteClientAction}>
+              <div className="flex items-center gap-2">
+                <ClientSettings id={client.id} name={client.name} slug={client.slug} />
+                <form action={deleteClientAction}>
                 <input type="hidden" name="id" value={client.id} />
                 <Tooltip content="Remove o cliente e todos os dashboards (cascade).">
                   <Button type="submit" variant="danger" size="sm">
@@ -90,6 +93,7 @@ export default async function ClientsPage() {
                   </Button>
                 </Tooltip>
               </form>
+              </div>
             </li>
           ))}
         </ul>

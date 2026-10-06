@@ -2,6 +2,7 @@
 
 import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import bcrypt from "bcryptjs";
 import fs from "fs/promises";
 import path from "path";
@@ -103,6 +104,31 @@ export async function createClientAction(formData: FormData): Promise<void> {
   } catch {
     // slug duplicado
   }
+}
+
+export async function updateClientDetailsAction(
+  _prev: { error: string; saved: boolean },
+  formData: FormData
+): Promise<{ error: string; saved: boolean }> {
+  await requireSession();
+  const id = String(formData.get("id") || "");
+  const name = String(formData.get("name") || "").trim();
+  const slug = slugify(String(formData.get("slug") || name));
+  if (!id || !name || !slug) return { error: "Informe o nome do cliente.", saved: false };
+
+  const current = await prisma.client.findUnique({ where: { id } });
+  if (!current) return { error: "Cliente não encontrado.", saved: false };
+
+  try {
+    await prisma.client.update({ where: { id }, data: { name, slug } });
+  } catch {
+    return { error: "Esse endereço já existe.", saved: false };
+  }
+
+  revalidatePath("/admin/clients");
+  revalidatePath(`/admin/clients/${current.slug}`);
+  revalidatePath(`/admin/clients/${slug}`);
+  return { error: "", saved: true };
 }
 
 export async function updateClientAction(formData: FormData): Promise<void> {
@@ -270,6 +296,44 @@ export async function createDashboardAction(formData: FormData): Promise<void> {
       { type: "bar", title: "Por página", metric: "sessions", dimension: "page" },
     ],
   });
+}
+
+export async function updateDashboardAction(
+  _prev: { error: string; saved: boolean },
+  formData: FormData
+): Promise<{ error: string; saved: boolean }> {
+  await requireSession();
+  const id = String(formData.get("id") || "");
+  const clientSlug = String(formData.get("clientSlug") || "");
+  const title = String(formData.get("title") || "").trim();
+  const description = String(formData.get("description") || "").trim();
+  const slug = slugify(String(formData.get("slug") || title));
+  const stay = formData.get("stay") === "list";
+  if (!id || !clientSlug || !title || !slug) {
+    return { error: "Informe o nome do dashboard.", saved: false };
+  }
+
+  const current = await prisma.dashboard.findFirst({
+    where: { id, client: { slug: clientSlug } },
+  });
+  if (!current) return { error: "Dashboard não encontrado.", saved: false };
+
+  try {
+    await prisma.dashboard.update({
+      where: { id },
+      data: { title, slug, description: description || null },
+    });
+  } catch {
+    return { error: "Esse endereço já existe neste cliente.", saved: false };
+  }
+
+  revalidatePath(`/admin/clients/${clientSlug}`);
+  revalidatePath(`/admin/clients/${clientSlug}/dashboards/${current.slug}`);
+  revalidatePath(`/admin/clients/${clientSlug}/dashboards/${slug}`);
+  revalidatePath(`/p/${clientSlug}/${current.slug}`);
+  revalidatePath(`/p/${clientSlug}/${slug}`);
+  if (stay) return { error: "", saved: true };
+  redirect(`/admin/clients/${clientSlug}/dashboards/${slug}`);
 }
 
 export async function deleteDashboardAction(formData: FormData): Promise<void> {

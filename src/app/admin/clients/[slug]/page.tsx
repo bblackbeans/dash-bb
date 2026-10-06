@@ -6,6 +6,8 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
+import { DashboardOpenLink } from "@/components/admin/dashboard-open-link";
+import { DashboardSettings } from "@/components/admin/dashboard-settings";
 import {
   deleteDashboardAction,
   updateClientAction,
@@ -102,12 +104,10 @@ export default async function ClientDetailPage({ params }: Props) {
                 className="flex flex-wrap items-center justify-between gap-3 bg-[var(--bb-surface)] px-4 py-3"
               >
                 <div>
-                  <Link
+                  <DashboardOpenLink
                     href={`/admin/clients/${client.slug}/dashboards/${dash.slug}`}
-                    className="font-medium hover:text-[var(--bb-accent)]"
-                  >
-                    {dash.title}
-                  </Link>
+                    title={dash.title}
+                  />
                   <p className="mt-0.5 flex flex-wrap items-center gap-2 text-sm text-[var(--bb-gray)]">
                     <span>/{dash.slug}</span>
                     <Badge tone={dash.isPublic ? "success" : "neutral"}>
@@ -117,6 +117,15 @@ export default async function ClientDetailPage({ params }: Props) {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
+                  <DashboardSettings
+                    id={dash.id}
+                    clientSlug={client.slug}
+                    title={dash.title}
+                    slug={dash.slug}
+                    description={dash.description || ""}
+                    label="Editar"
+                    stayOnList
+                  />
                   {dash.isPublic ? (
                     <Tooltip content="Abre a URL pública em nova aba">
                       <Link

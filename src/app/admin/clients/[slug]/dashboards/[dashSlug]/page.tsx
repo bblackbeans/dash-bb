@@ -5,6 +5,7 @@ import { Eye, EyeOff } from "lucide-react";
 import { BigQuerySource } from "@/components/admin/bigquery-source";
 import { CopyPublicUrl } from "@/components/admin/copy-public-url";
 import { DashboardBuilder } from "@/components/admin/dashboard-builder";
+import { DashboardSettings } from "@/components/admin/dashboard-settings";
 import { EditPagesButton } from "@/components/admin/edit-pages-button";
 import { togglePublicAction } from "@/lib/actions";
 import {
@@ -78,6 +79,13 @@ export default async function AdminDashboardPage({ params }: Props) {
               {dashboard.isPublic ? "público" : "privado"}
             </Badge>
             <Badge tone="info">{dashboard.dataSource}</Badge>
+            <DashboardSettings
+              id={dashboard.id}
+              clientSlug={dashboard.client.slug}
+              title={dashboard.title}
+              slug={dashboard.slug}
+              description={dashboard.description || ""}
+            />
             <EditPagesButton />
             <form action={togglePublicAction}>
               <input type="hidden" name="id" value={dashboard.id} />

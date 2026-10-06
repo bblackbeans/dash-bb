@@ -776,45 +776,85 @@ export function DashboardBuilder({
 
                 {tab === "dados" && selected.type === "table" ? (
                   <div className="space-y-2">
-                    <p className="text-xs text-[var(--bb-gray)]">Colunas da tabela</p>
+                    <p className="text-xs text-[var(--bb-gray)]">
+                      Colunas da tabela. As setas mudam a ordem.
+                    </p>
                     <Input
                       value={columnQuery}
                       placeholder="Buscar coluna"
                       onChange={(event) => setColumnQuery(event.target.value)}
                     />
                     <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-                      {[...fields.dimensions, ...fields.metrics]
-                        .filter((field) => {
-                          const query = columnQuery.trim().toLowerCase();
-                          if (!query) return true;
-                          return field.toLowerCase().includes(query) || fieldLabel(field).toLowerCase().includes(query);
-                        })
-                        .map((field) => {
-                          const selectedColumns = selectedConfig.columns?.length
-                            ? selectedConfig.columns
-                            : [...fields.dimensions, ...fields.metrics].slice(0, 8);
+                      {(() => {
+                        const allFields = [...fields.dimensions, ...fields.metrics];
+                        const selectedColumns = selectedConfig.columns?.length
+                          ? selectedConfig.columns.filter((column) => allFields.includes(column))
+                          : allFields.slice(0, 8);
+                        const query = columnQuery.trim().toLowerCase();
+                        const matches = (field: string) =>
+                          !query ||
+                          field.toLowerCase().includes(query) ||
+                          fieldLabel(field).toLowerCase().includes(query);
+                        const ordered = [
+                          ...selectedColumns.filter(matches),
+                          ...allFields.filter((field) => !selectedColumns.includes(field) && matches(field)),
+                        ];
+                        return ordered.map((field) => {
                           const checked = selectedColumns.includes(field);
+                          const index = selectedColumns.indexOf(field);
+                          const move = (direction: -1 | 1) => {
+                            const nextIndex = index + direction;
+                            if (nextIndex < 0 || nextIndex >= selectedColumns.length) return;
+                            const next = [...selectedColumns];
+                            const [item] = next.splice(index, 1);
+                            next.splice(nextIndex, 0, item);
+                            updateConfig({ columns: next });
+                          };
                           return (
                             <div key={field} className="space-y-1">
-                              <label className="flex items-center gap-2 text-xs text-[var(--bb-cream)]">
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={() => {
-                                    const next = checked
-                                      ? selectedColumns.filter((column) => column !== field)
-                                      : [...selectedColumns, field];
-                                    if (!next.length) {
-                                      setError("A tabela precisa de ao menos uma coluna.");
-                                      return;
-                                    }
-                                    const labels = { ...(selectedConfig.columnLabels || {}) };
-                                    if (checked) delete labels[field];
-                                    updateConfig({ columns: next, columnLabels: labels });
-                                  }}
-                                />
-                                {field}
-                              </label>
+                              <div className="flex items-center gap-1 text-xs text-[var(--bb-cream)]">
+                                {checked ? (
+                                  <span className="flex shrink-0 flex-col">
+                                    <button
+                                      type="button"
+                                      aria-label={`Subir ${field}`}
+                                      disabled={index === 0}
+                                      className="leading-none text-[var(--bb-gray)] disabled:opacity-30"
+                                      onClick={() => move(-1)}
+                                    >
+                                      ↑
+                                    </button>
+                                    <button
+                                      type="button"
+                                      aria-label={`Descer ${field}`}
+                                      disabled={index === selectedColumns.length - 1}
+                                      className="leading-none text-[var(--bb-gray)] disabled:opacity-30"
+                                      onClick={() => move(1)}
+                                    >
+                                      ↓
+                                    </button>
+                                  </span>
+                                ) : null}
+                                <label className="flex min-w-0 flex-1 items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => {
+                                      const next = checked
+                                        ? selectedColumns.filter((column) => column !== field)
+                                        : [...selectedColumns, field];
+                                      if (!next.length) {
+                                        setError("A tabela precisa de ao menos uma coluna.");
+                                        return;
+                                      }
+                                      const labels = { ...(selectedConfig.columnLabels || {}) };
+                                      if (checked) delete labels[field];
+                                      updateConfig({ columns: next, columnLabels: labels });
+                                    }}
+                                  />
+                                  <span className="truncate">{field}</span>
+                                </label>
+                              </div>
                               {checked ? (
                                 <Input
                                   value={selectedConfig.columnLabels?.[field] || ""}
@@ -831,7 +871,8 @@ export function DashboardBuilder({
                               ) : null}
                             </div>
                           );
-                        })}
+                        });
+                      })()}
                     </div>
                   </div>
                 ) : null}
