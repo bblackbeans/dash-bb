@@ -21,7 +21,7 @@ export type DashboardFilters = {
 };
 
 export const defaultFilters = (): DashboardFilters => ({
-  preset: "30d",
+  preset: "all",
   facets: {},
   compare: false,
 });

@@ -80,6 +80,7 @@ function formatDay(iso: string): string {
 }
 
 function rangeLabel(filters: DashboardFilters): string {
+  if (filters.preset === "all") return "Todas as datas";
   const range = resolveDateRange(filters);
   if (!range) return "Sem recorte de data";
   if (range.start === range.end) return formatDay(range.start);
@@ -124,7 +125,7 @@ export function FilterBar({ filters, onChange, facets }: Props) {
     }))
   );
   const dirty =
-    filters.preset !== "30d" ||
+    filters.preset !== "all" ||
     filters.compare ||
     chips.length > 0;
 
@@ -224,7 +225,7 @@ export function FilterBar({ filters, onChange, facets }: Props) {
         {dirty ? (
           <button
             type="button"
-            onClick={() => onChange({ preset: "30d", facets: {}, compare: false })}
+            onClick={() => onChange({ preset: "all", facets: {}, compare: false })}
             className="inline-flex items-center gap-1 px-2 py-2 text-sm text-[var(--bb-gray)] hover:text-[var(--bb-cream)]"
           >
             <X className="h-3.5 w-3.5" />
