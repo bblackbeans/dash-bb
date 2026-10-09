@@ -153,6 +153,15 @@ body[data-editor="open"] .bb-dash-builder {
   overflow: hidden;
 }
 
+html[data-pdf-capture] [data-pdf-board],
+html[data-pdf-capture] [data-pdf-board] * {
+  scrollbar-width: none;
+}
+
+html[data-pdf-capture] [data-pdf-board] *::-webkit-scrollbar {
+  display: none;
+}
+
 body[data-editor="open"] .bb-dash-canvas {
   position: absolute;
   inset: 0;

@@ -36,6 +36,7 @@ export function CanvasBoard({
   comparisonByView,
   compare,
   editing,
+  frozen,
   selectedId,
   onSelect,
   onFrame,
@@ -49,6 +50,7 @@ export function CanvasBoard({
   comparisonByView?: Record<string, DataRow[]>;
   compare: boolean;
   editing?: boolean;
+  frozen?: boolean;
   selectedId?: string | null;
   onSelect?: (id: string | null) => void;
   onFrame?: (id: string, frame: WidgetFrame) => void;
@@ -175,6 +177,7 @@ export function CanvasBoard({
       >
         <div
           ref={boardRef}
+          data-pdf-board=""
           className={`relative ${editing ? "select-none" : ""}`}
           style={{
             width: theme.canvasWidth,
@@ -191,10 +194,11 @@ export function CanvasBoard({
             const rawFrame = parseWidgetConfig(widget.configJson).frame;
             if (!rawFrame) return null;
             const frame = clampFrame(rawFrame, { width: theme.canvasWidth, height });
-            const selected = editing && selectedId === widget.id;
+            const selected = editing && !frozen && selectedId === widget.id;
             return (
               <div
                 key={widget.id}
+                data-widget-id={widget.id}
                 className="absolute"
                 style={{
                   left: frame.x,
@@ -221,6 +225,7 @@ export function CanvasBoard({
                   compare={compare}
                   width={frame.w}
                   height={frame.h}
+                  frozen={frozen}
                 />
                 {selected
                   ? HANDLES.map((handle) => (

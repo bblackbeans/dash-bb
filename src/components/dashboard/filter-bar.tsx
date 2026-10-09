@@ -131,22 +131,22 @@ export function FilterBar({ filters, onChange, facets }: Props) {
 
   return (
     <div ref={rootRef} className="space-y-3 rounded-[var(--bb-radius-xl)] border border-[var(--bb-border)] bg-[var(--bb-surface)] p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative">
+      <div className="grid grid-cols-1 gap-2 min-[520px]:grid-cols-2 xl:grid-cols-4">
+        <div className="relative min-w-0">
           <button
             type="button"
             aria-expanded={open === "date"}
             onClick={() => setOpen(open === "date" ? null : "date")}
-            className="inline-flex items-center gap-2 rounded-[var(--bb-radius)] border border-[var(--bb-border)] bg-[#141312] px-3 py-2 text-left text-sm text-[var(--bb-cream)]"
+            className="inline-flex h-10 w-full items-center gap-2 rounded-[var(--bb-radius)] border border-[var(--bb-border)] bg-[#141312] px-3 text-left text-sm text-[var(--bb-cream)]"
           >
-            <CalendarRange className="h-4 w-4 text-[var(--bb-accent)]" aria-hidden />
-            <span>
-              <span className="block leading-none">{presetLabel(filters.preset)}</span>
-              <span className="mt-1 block text-xs text-[var(--bb-gray)]">{rangeLabel(filters)}</span>
+            <CalendarRange className="h-4 w-4 shrink-0 text-[var(--bb-accent)]" aria-hidden />
+            <span className="min-w-0 truncate">
+              {presetLabel(filters.preset)}
+              <span className="ml-2 text-xs text-[var(--bb-gray)]">{rangeLabel(filters)}</span>
             </span>
           </button>
           {open === "date" ? (
-            <div className="absolute left-0 z-30 mt-2 w-[320px] rounded-[var(--bb-radius-xl)] border border-[var(--bb-border)] bg-[#141312] p-3 shadow-xl">
+            <div className="absolute left-0 z-30 mt-2 w-[min(20rem,calc(100vw-2rem))] rounded-[var(--bb-radius-xl)] border border-[var(--bb-border)] bg-[#141312] p-3 shadow-xl">
               <div className="grid grid-cols-2 gap-1">
                 {PRESETS.map((preset) => (
                   <button
@@ -226,7 +226,7 @@ export function FilterBar({ filters, onChange, facets }: Props) {
           <button
             type="button"
             onClick={() => onChange({ preset: "all", facets: {}, compare: false })}
-            className="inline-flex items-center gap-1 px-2 py-2 text-sm text-[var(--bb-gray)] hover:text-[var(--bb-cream)]"
+            className="inline-flex h-10 w-full items-center justify-center gap-1 rounded-[var(--bb-radius)] border border-[var(--bb-border)] px-3 text-sm text-[var(--bb-gray)] hover:text-[var(--bb-cream)]"
           >
             <X className="h-3.5 w-3.5" />
             Limpar
@@ -278,19 +278,19 @@ function MultiFilter({
   const active = open === id;
 
   return (
-    <div className="relative">
+    <div className="relative min-w-0">
       <button
         type="button"
         aria-expanded={active}
         onClick={() => setOpen(active ? null : id)}
-        className={`inline-flex items-center gap-2 rounded-[var(--bb-radius)] border px-3 py-2 text-sm ${
+        className={`inline-flex h-10 w-full items-center gap-2 rounded-[var(--bb-radius)] border bg-[#141312] px-3 text-left text-sm ${
           selected.length
             ? "border-[var(--bb-accent)] text-[var(--bb-cream)]"
             : "border-[var(--bb-border)] text-[var(--bb-cream)]"
         }`}
       >
-        <Icon className="h-4 w-4 text-[var(--bb-accent)]" aria-hidden />
-        {label}
+        <Icon className="h-4 w-4 shrink-0 text-[var(--bb-accent)]" aria-hidden />
+        <span className="min-w-0 truncate">{label}</span>
         {selected.length ? (
           <span className="rounded-full bg-[var(--bb-accent)] px-1.5 text-xs text-[var(--bb-black)]">
             {selected.length}
@@ -298,7 +298,7 @@ function MultiFilter({
         ) : null}
       </button>
       {active ? (
-        <div className="absolute left-0 z-30 mt-2 w-64 rounded-[var(--bb-radius-xl)] border border-[var(--bb-border)] bg-[#141312] p-2 shadow-xl">
+        <div className="absolute left-0 z-30 mt-2 w-[min(18rem,calc(100vw-2rem))] rounded-[var(--bb-radius-xl)] border border-[var(--bb-border)] bg-[#141312] p-2 shadow-xl">
           <label className="relative block" htmlFor={fieldId}>
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--bb-gray)]" />
             <input

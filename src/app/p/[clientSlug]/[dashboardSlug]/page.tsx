@@ -52,6 +52,7 @@ export default async function PublicDashboardPage({ params }: Props) {
       <DashboardViewer
         title={dashboard.title}
         subtitle={dashboard.client.name}
+        clientName={dashboard.client.name}
         rows={rows}
         rowsByView={dashboard.dataSource === "bigquery" ? rowsByView : undefined}
         pages={source && source.pages.length > 1 ? source.pages : undefined}

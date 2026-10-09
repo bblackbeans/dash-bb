@@ -95,6 +95,7 @@ export function DashboardBuilder({
   dashSlug,
   title,
   subtitle,
+  clientName,
   rows,
   rowsByView,
   pages,
@@ -108,6 +109,7 @@ export function DashboardBuilder({
   dashSlug: string;
   title: string;
   subtitle?: string;
+  clientName?: string;
   rows: DataRow[];
   rowsByView?: Record<string, DataRow[]>;
   pages?: DashboardPageTab[];
@@ -524,20 +526,6 @@ export function DashboardBuilder({
 
   return (
     <div className="bb-dash-builder space-y-4">
-      {!editing ? (
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            onClick={() => {
-              setEditing(true);
-              setStudioOpen(true);
-            }}
-          >
-            Montar dashboard
-          </Button>
-        </div>
-      ) : null}
-
       {editing && !studioOpen ? (
         <button
           type="button"
@@ -984,6 +972,7 @@ export function DashboardBuilder({
           <DashboardViewer
             title={title}
             subtitle={subtitle}
+            clientName={clientName}
             rows={rows}
             rowsByView={rowsByView}
             pages={dashPages.length > 1 ? dashPages : undefined}
@@ -995,6 +984,20 @@ export function DashboardBuilder({
             widgets={widgets}
             theme={theme}
             edit={edit}
+            toolbar={
+              editing ? null : (
+                <Button
+                  type="button"
+                  className="h-10"
+                  onClick={() => {
+                    setEditing(true);
+                    setStudioOpen(true);
+                  }}
+                >
+                  Montar dashboard
+                </Button>
+              )
+            }
           />
         </div>
       </div>

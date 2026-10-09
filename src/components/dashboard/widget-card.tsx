@@ -202,6 +202,7 @@ export function WidgetCard({
   compare,
   width,
   height,
+  frozen,
 }: {
   widget: WidgetDTO;
   theme: DashboardTheme;
@@ -210,6 +211,7 @@ export function WidgetCard({
   compare: boolean;
   width: number;
   height: number;
+  frozen?: boolean;
 }) {
   const config = parseWidgetConfig(widget.configJson);
   const look = resolveLook(theme, config);
@@ -291,6 +293,7 @@ export function WidgetCard({
           rows={rows}
           width={Math.max(80, width - 32)}
           height={Math.max(64, height - 56)}
+          frozen={frozen}
         />
       </div>
     </div>
@@ -365,6 +368,7 @@ function ChartBody({
   rows,
   width,
   height,
+  frozen,
 }: {
   widget: WidgetDTO;
   config: WidgetConfig;
@@ -372,6 +376,7 @@ function ChartBody({
   rows: DataRow[];
   width: number;
   height: number;
+  frozen?: boolean;
 }) {
   const metric = config.metric || "leads";
   const dimension = config.dimension || "date";
@@ -433,7 +438,14 @@ function ChartBody({
     const data = groupByDimension(rows, dimension, metric);
     return (
       <PieChart width={width} height={height}>
-        <Pie data={data} dataKey="value" nameKey="name" outerRadius={Math.min(width, height) / 3.2} label>
+        <Pie
+          data={data}
+          dataKey="value"
+          nameKey="name"
+          outerRadius={Math.min(width, height) / 3.2}
+          label
+          isAnimationActive={!frozen}
+        >
           {data.map((_, index) => (
             <Cell key={index} fill={look.palette[index % look.palette.length] || accent} />
           ))}
@@ -455,7 +467,14 @@ function ChartBody({
         <XAxis dataKey="name" stroke={look.muted} fontSize={11} />
         <YAxis stroke={look.muted} fontSize={11} tickFormatter={tick} width={56} />
         <Tooltip {...chartTooltip} formatter={(value) => tick(Number(value))} />
-        <Line type="monotone" dataKey="value" stroke={accent} strokeWidth={2} dot={false} />
+        <Line
+          type="monotone"
+          dataKey="value"
+          stroke={accent}
+          strokeWidth={2}
+          dot={false}
+          isAnimationActive={!frozen}
+        />
       </LineChart>
     );
   }
@@ -466,7 +485,7 @@ function ChartBody({
       <XAxis dataKey="name" stroke={look.muted} fontSize={11} />
       <YAxis stroke={look.muted} fontSize={11} tickFormatter={tick} width={48} />
       <Tooltip {...chartTooltip} formatter={(value) => tick(Number(value))} />
-      <Bar dataKey="value" fill={accent} radius={[4, 4, 0, 0]} />
+      <Bar dataKey="value" fill={accent} radius={[4, 4, 0, 0]} isAnimationActive={!frozen} />
     </BarChart>
   );
 }

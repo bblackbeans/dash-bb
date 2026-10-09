@@ -158,6 +158,7 @@ export default async function AdminDashboardPage({ params }: Props) {
         dashSlug={dashboard.slug}
         title={dashboard.title}
         subtitle={`${dashboard.client.name} · /p/${dashboard.client.slug}/${dashboard.slug}`}
+        clientName={dashboard.client.name}
         rows={rows}
         rowsByView={dashboard.dataSource === "bigquery" ? rowsByView : undefined}
         pages={source?.pages}

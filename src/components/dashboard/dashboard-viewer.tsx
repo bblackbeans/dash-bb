@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import { PdfExportButton } from "./pdf-export-button";
 import { ensureFrames } from "@/lib/canvas-layout";
 import { BLACKBEANS_THEME, type DashboardTheme } from "@/lib/dashboard-theme";
 import type { DataRow } from "@/lib/mock-loader";
@@ -46,8 +47,10 @@ type Props = {
   theme?: DashboardTheme;
   title: string;
   subtitle?: string;
+  clientName?: string;
   readOnly?: boolean;
   edit?: WidgetEditApi;
+  toolbar?: ReactNode;
 };
 
 export function DashboardViewer({
@@ -60,10 +63,13 @@ export function DashboardViewer({
   theme = BLACKBEANS_THEME,
   title,
   subtitle,
+  clientName,
   readOnly,
   edit,
+  toolbar,
 }: Props) {
   const [filters, setFilters] = useState<DashboardFilters>(defaultFilters);
+  const [exporting, setExporting] = useState(false);
   const [localPageId, setLocalPageId] = useState(pages?.[0]?.id || "");
   const activePageId = pageId || localPageId;
   const activePage = pages?.find((page) => page.id === activePageId) || pages?.[0];
@@ -122,40 +128,57 @@ export function DashboardViewer({
 
   return (
     <div className={edit ? "space-y-3" : "space-y-6"}>
-      {edit ? null : (
-        <header className="space-y-1">
-          <h1 className="text-2xl font-semibold text-[var(--bb-cream)]">
-            {title}
-          </h1>
-          {subtitle ? (
-            <p className="text-sm text-[var(--bb-gray)]">{subtitle}</p>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 space-y-3">
+          {edit ? null : (
+            <header className="space-y-1">
+              <h1 className="text-2xl font-semibold text-[var(--bb-cream)]">
+                {title}
+              </h1>
+              {subtitle ? (
+                <p className="text-sm text-[var(--bb-gray)]">{subtitle}</p>
+              ) : null}
+              {readOnly ? (
+                <p className="text-xs uppercase tracking-wide text-[var(--bb-accent)]">
+                  Visualização pública
+                </p>
+              ) : null}
+            </header>
+          )}
+          {pages && pages.length > 1 ? (
+            <div className="flex flex-wrap gap-2">
+              {pages.map((page) => (
+                <button
+                  key={page.id}
+                  type="button"
+                  onClick={() => selectPage(page.id)}
+                  className={`inline-flex h-10 cursor-pointer items-center rounded-full border px-4 text-sm ${
+                    page.id === activePage?.id
+                      ? "border-[var(--bb-accent)] bg-[var(--bb-accent)] text-[var(--bb-black)]"
+                      : "border-[var(--bb-border)] text-[var(--bb-cream)] hover:border-[var(--bb-accent)]"
+                  }`}
+                >
+                  {page.title}
+                </button>
+              ))}
+            </div>
           ) : null}
-          {readOnly ? (
-            <p className="text-xs uppercase tracking-wide text-[var(--bb-accent)]">
-              Visualização pública
-            </p>
-          ) : null}
-        </header>
-      )}
-
-      {pages && pages.length > 1 ? (
-        <div className="flex flex-wrap gap-2">
-          {pages.map((page) => (
-            <button
-              key={page.id}
-              type="button"
-              onClick={() => selectPage(page.id)}
-              className={`cursor-pointer rounded-full border px-4 py-2 text-sm ${
-                page.id === activePage?.id
-                  ? "border-[var(--bb-accent)] bg-[var(--bb-accent)] text-[var(--bb-black)]"
-                  : "border-[var(--bb-border)] text-[var(--bb-cream)] hover:border-[var(--bb-accent)]"
-              }`}
-            >
-              {page.title}
-            </button>
-          ))}
         </div>
-      ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          <PdfExportButton
+            title={title}
+            clientName={clientName || subtitle}
+            filters={filters}
+            pageRows={activePage ? pageRows : rows}
+            widgets={visibleWidgets}
+            rowsByView={rowsByView}
+            theme={theme}
+            onChange={setFilters}
+            onExporting={setExporting}
+          />
+          {toolbar}
+        </div>
+      </div>
 
       <FilterBar
         filters={filters}
@@ -172,6 +195,7 @@ export function DashboardViewer({
         comparisonByView={comparisonByView}
         compare={filters.compare}
         editing={Boolean(edit)}
+        frozen={exporting}
         selectedId={edit?.selectedId}
         onSelect={edit?.onSelect}
         onFrame={edit?.onFrame}
