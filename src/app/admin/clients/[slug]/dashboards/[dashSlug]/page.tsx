@@ -15,7 +15,8 @@ import {
 } from "@/lib/bigquery";
 import { parseTheme } from "@/lib/dashboard-theme";
 import { BUILTIN_TEMPLATES, templateFromRecord } from "@/lib/dashboard-templates";
-import { loadDashboardViewRows } from "@/lib/load-dataset";
+import { loadDashboardData } from "@/lib/load-dataset";
+import { TruncationNotice } from "@/components/dashboard/truncation-notice";
 import { prisma } from "@/lib/prisma";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,10 +36,13 @@ export default async function AdminDashboardPage({ params }: Props) {
   if (!dashboard) notFound();
 
   const source = parseBigQuerySource(dashboard.sourceJson);
-  let rowsByView: Record<string, Awaited<ReturnType<typeof loadDashboardViewRows>>[string]> = {};
+  let rowsByView: Record<string, Awaited<ReturnType<typeof loadDashboardData>>["views"][string]> = {};
+  let truncated: string[] = [];
   let sourceError = "";
   try {
-    rowsByView = await loadDashboardViewRows(dashboard);
+    const loaded = await loadDashboardData(dashboard);
+    rowsByView = loaded.views;
+    truncated = loaded.truncated;
   } catch (error) {
     sourceError = error instanceof Error ? error.message : "Não foi possível ler a fonte de dados.";
   }
@@ -152,6 +156,7 @@ export default async function AdminDashboardPage({ params }: Props) {
         pages={source?.pages || []}
       />
 
+      <TruncationNotice views={truncated} />
       <DashboardBuilder
         dashboardId={dashboard.id}
         clientSlug={dashboard.client.slug}

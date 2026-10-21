@@ -2,6 +2,15 @@ import fs from "fs";
 import path from "path";
 import { BigQuery } from "@google-cloud/bigquery";
 import type { DataRow } from "./mock-loader";
+import {
+  buildPlatformSql,
+  actionsTableName,
+  planPlatform,
+  platformDimensions,
+  withActions,
+  platformMetrics,
+  type PlatformPlan,
+} from "./bigquery-platforms";
 
 export type DashboardDataPage = {
   id: string;
@@ -146,7 +155,11 @@ export async function listBigQueryTables(datasetId: string): Promise<
       return { id, type };
     })
   );
-  return listed.filter((item) => item.id).sort((a, b) => a.id.localeCompare(b.id));
+  // Tabelas de ações do Meta são lidas por dentro do sistema; não aparecem para escolher.
+  const helper = /^facebook_(campaign|ad)_insights_action(s|_values)(_\d+)?$/;
+  return listed
+    .filter((item) => item.id && !helper.test(item.id))
+    .sort((a, b) => a.id.localeCompare(b.id));
 }
 
 const NUMERIC_TYPES = new Set([
@@ -159,14 +172,73 @@ const NUMERIC_TYPES = new Set([
   "DECIMAL",
 ]);
 
+const ROW_LIMIT = 20000;
+const extrasCache = new Map<string, { at: number; names: string[] }>();
+const EXTRAS_TTL_MS = 10 * 60 * 1000;
+
+async function loadPlan(
+  bq: BigQuery,
+  dataset: string,
+  table: string
+): Promise<{ plan: PlatformPlan | null; fields: { name?: string; type?: string }[] }> {
+  const [metadata] = await bq.dataset(dataset).table(table).getMetadata();
+  const fields = (metadata.schema?.fields || []) as { name?: string; type?: string }[];
+  // Só tabelas de conectores são normalizadas; views feitas à mão continuam como estão.
+  const isTable = String(metadata.type || "TABLE") === "TABLE";
+  let plan = isTable ? planPlatform(fields) : null;
+  // Meta sem colunas de conversão: procura a tabela de ações do mesmo dataset.
+  const sibling = plan && !plan.metrics.some((m) => m.key === "leads") ? actionsTableName(table) : null;
+  if (plan && sibling) {
+    try {
+      const [actions] = await bq.dataset(dataset).table(sibling).getMetadata();
+      plan = withActions(plan, sibling, (actions.schema?.fields || []) as { name?: string }[]);
+    } catch {
+      // sem tabela de ações: segue só com custo, impressões e cliques
+    }
+  }
+  return { plan, fields };
+}
+
+async function usedExtras(
+  bq: BigQuery,
+  dataset: string,
+  table: string,
+  plan: PlatformPlan
+): Promise<string[]> {
+  if (!plan.extras.length) return [];
+  const key = `${dataset}.${table}`;
+  const cached = extrasCache.get(key);
+  if (cached && Date.now() - cached.at < EXTRAS_TTL_MS) return cached.names;
+  const counts = plan.extras.map((extra, index) => `COUNTIF(\`${extra.name}\` IS NOT NULL AND \`${extra.name}\` != 0) AS c${index}`);
+  const location = await datasetLocation(bq, dataset);
+  const [rows] = await bq.query({
+    query: `SELECT ${counts.join(", ")} FROM \`${bigQueryProjectId()}.${dataset}.${table}\``,
+    location,
+  });
+  const row = (rows[0] || {}) as Record<string, unknown>;
+  const names = plan.extras
+    .filter((_, index) => Number(row[`c${index}`] || 0) > 0)
+    .map((extra) => extra.name);
+  extrasCache.set(key, { at: Date.now(), names });
+  return names;
+}
+
 export async function describeBigQueryTable(
   datasetId: string,
   tableId: string
-): Promise<{ metrics: string[]; dimensions: string[] }> {
+): Promise<{ metrics: string[]; dimensions: string[]; platform?: string }> {
   const dataset = assertIdentifier(datasetId, "Dataset");
   const table = assertIdentifier(tableId, "View");
-  const [metadata] = await client().dataset(dataset).table(table).getMetadata();
-  const fields = (metadata.schema?.fields || []) as { name?: string; type?: string }[];
+  const bq = client();
+  const { plan, fields } = await loadPlan(bq, dataset, table);
+  if (plan) {
+    const extras = await usedExtras(bq, dataset, table, plan);
+    return {
+      metrics: platformMetrics(plan, extras),
+      dimensions: platformDimensions(plan),
+      platform: plan.platform,
+    };
+  }
   const metrics: string[] = [];
   const dimensions: string[] = [];
   for (const field of fields) {
@@ -178,23 +250,74 @@ export async function describeBigQueryTable(
   return { metrics, dimensions };
 }
 
+async function datasetLocation(bq: BigQuery, dataset: string): Promise<string> {
+  try {
+    const [metadata] = await bq.dataset(dataset).getMetadata();
+    return String(metadata.location || bigQueryLocation());
+  } catch {
+    return bigQueryLocation();
+  }
+}
+
+export type LoadedTable = { rows: DataRow[]; truncated: boolean };
+
+// Cache curto: o mesmo dashboard aberto várias vezes não consulta o BigQuery de novo.
+const QUERY_CACHE_TTL_MS = 5 * 60 * 1000;
+const queryCache = new Map<string, { at: number; value: Promise<LoadedTable> }>();
+
+export function clearBigQueryCache(): void {
+  queryCache.clear();
+  extrasCache.clear();
+}
+
 export async function loadBigQueryTable(source: {
   dataset: string;
   table: string;
   location?: string;
+  fields?: string[];
 }): Promise<DataRow[]> {
+  return (await loadBigQueryTableDetailed(source)).rows;
+}
+
+export async function loadBigQueryTableDetailed(source: {
+  dataset: string;
+  table: string;
+  location?: string;
+  fields?: string[];
+}): Promise<LoadedTable> {
   const projectId = bigQueryProjectId();
   if (!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(projectId)) {
     throw new Error("ID do projeto BigQuery inválido.");
   }
   const dataset = assertIdentifier(source.dataset, "Dataset");
   const table = assertIdentifier(source.table, "View");
-  const location = source.location || bigQueryLocation();
-  const [rows] = await client().query({
-    query: `SELECT * FROM \`${projectId}.${dataset}.${table}\` LIMIT 20000`,
-    location,
-  });
-  return rows.map((row) => {
+  const fields = [...new Set(source.fields || [])].sort();
+  const key = `${projectId}.${dataset}.${table}|${fields.join(",")}`;
+  const hit = queryCache.get(key);
+  if (hit && Date.now() - hit.at < QUERY_CACHE_TTL_MS) return hit.value;
+
+  const value = runLoad(projectId, dataset, table, fields);
+  queryCache.set(key, { at: Date.now(), value });
+  value.catch(() => queryCache.delete(key));
+  return value;
+}
+
+async function runLoad(
+  projectId: string,
+  dataset: string,
+  table: string,
+  fields: string[]
+): Promise<LoadedTable> {
+  const bq = client();
+  const location = await datasetLocation(bq, dataset);
+  const { plan } = await loadPlan(bq, dataset, table);
+  // Pede uma linha a mais para saber se o limite cortou dados.
+  const query = plan
+    ? buildPlatformSql(plan, `${projectId}.${dataset}.${table}`, fields, ROW_LIMIT + 1)
+    : `SELECT * FROM \`${projectId}.${dataset}.${table}\` LIMIT ${ROW_LIMIT + 1}`;
+  const [all] = await bq.query({ query, location });
+  const truncated = all.length > ROW_LIMIT;
+  const rows = all.slice(0, ROW_LIMIT).map((row) => {
     const next: DataRow = {};
     for (const [key, value] of Object.entries(row)) {
       if (!IDENTIFIER.test(key)) continue;
@@ -204,4 +327,5 @@ export async function loadBigQueryTable(source: {
     }
     return next;
   });
+  return { rows, truncated };
 }

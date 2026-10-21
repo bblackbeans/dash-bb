@@ -35,6 +35,7 @@ import {
 } from "@/lib/chart-suggestion";
 import { slugify } from "@/lib/slug";
 import { Badge } from "@/components/ui/badge";
+import { fieldLabel } from "@/lib/widget-config";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -842,7 +843,7 @@ export function DashboardWizard({
                         >
                           {widgetFields.metrics.map((m) => (
                             <option key={m} value={m}>
-                              {m}
+                              {fieldLabel(m)}
                             </option>
                           ))}
                         </Select>
@@ -862,7 +863,7 @@ export function DashboardWizard({
                         >
                           {widgetFields.dimensions.map((d) => (
                             <option key={d} value={d}>
-                              {d}
+                              {fieldLabel(d)}
                             </option>
                           ))}
                         </Select>

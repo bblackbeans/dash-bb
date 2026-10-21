@@ -2,7 +2,8 @@ import { notFound } from "next/navigation";
 import { DashboardViewer } from "@/components/dashboard/dashboard-viewer";
 import { parseBigQuerySource } from "@/lib/bigquery";
 import { parseTheme } from "@/lib/dashboard-theme";
-import { loadDashboardViewRows } from "@/lib/load-dataset";
+import { loadDashboardData } from "@/lib/load-dataset";
+import { TruncationNotice } from "@/components/dashboard/truncation-notice";
 import { prisma } from "@/lib/prisma";
 
 type Props = {
@@ -22,10 +23,13 @@ export default async function PublicDashboardPage({ params }: Props) {
   if (!dashboard) notFound();
 
   const source = parseBigQuerySource(dashboard.sourceJson);
-  let rowsByView: Record<string, Awaited<ReturnType<typeof loadDashboardViewRows>>[string]> = {};
+  let rowsByView: Record<string, Awaited<ReturnType<typeof loadDashboardData>>["views"][string]> = {};
+  let truncated: string[] = [];
   let sourceError = "";
   try {
-    rowsByView = await loadDashboardViewRows(dashboard);
+    const loaded = await loadDashboardData(dashboard);
+    rowsByView = loaded.views;
+    truncated = loaded.truncated;
   } catch (error) {
     sourceError = error instanceof Error ? error.message : "Não foi possível ler os dados.";
   }
@@ -49,6 +53,7 @@ export default async function PublicDashboardPage({ params }: Props) {
           className="h-auto w-[280px]"
         />
       </div>
+      <TruncationNotice views={truncated} />
       <DashboardViewer
         title={dashboard.title}
         subtitle={dashboard.client.name}

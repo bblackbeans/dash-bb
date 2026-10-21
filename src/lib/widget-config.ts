@@ -79,7 +79,17 @@ const FIELD_LABELS: Record<string, string> = {
   spend: "Investimento",
   revenue: "Receita",
   clicks: "Cliques",
+  link_clicks: "Cliques no link",
   impressions: "Impressões",
+  whatsapp: "Conversas no WhatsApp",
+  landing_page_views: "Visualizações da página",
+  engagements: "Engajamentos",
+  inline_post_engagement: "Engajamento com a publicação",
+  ctr: "CTR (%)",
+  cpc: "CPC",
+  cpm: "CPM",
+  cpl: "CPL (leads)",
+  cpl_whatsapp: "CPL (WhatsApp)",
   sessions: "Sessões",
   users: "Usuários",
   conversions: "Conversões",
@@ -89,8 +99,19 @@ const FIELD_LABELS: Record<string, string> = {
   device: "Dispositivo",
 };
 
+function prettifyConnectorKey(key: string): string {
+  const text = key
+    .replace(/^a_/, "")
+    .replace(/^value_/, "valor ")
+    .replace(/_/g, " ")
+    .trim();
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 export function fieldLabel(key: string): string {
-  return FIELD_LABELS[key] || key;
+  if (FIELD_LABELS[key]) return FIELD_LABELS[key];
+  if (/^(a|value)_/.test(key)) return prettifyConnectorKey(key);
+  return key;
 }
 
 export function isWidgetType(value: string): value is WidgetType {
