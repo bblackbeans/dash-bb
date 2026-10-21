@@ -113,8 +113,15 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-function paintPage(pdf: jsPDF) {
-  pdf.setFillColor(244, 240, 237);
+function rgb(hex: string): [number, number, number] {
+  const value = hex.replace("#", "").trim();
+  const parts = value.length === 3 ? value.split("").map((char) => char + char) : [value.slice(0, 2), value.slice(2, 4), value.slice(4, 6)];
+  return parts.map((part) => Number.parseInt(part, 16) || 0) as [number, number, number];
+}
+
+function paintPage(pdf: jsPDF, background: string) {
+  const [red, green, blue] = rgb(background);
+  pdf.setFillColor(red, green, blue);
   pdf.rect(0, 0, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight(), "F");
 }
 
@@ -167,28 +174,28 @@ function drawHeader(
   clientName: string | undefined,
   period: string,
   campaign: string | undefined,
-  continued: boolean
+  continued: boolean,
+  theme: DashboardTheme
 ): number {
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
-  pdf.setFillColor(244, 240, 237);
-  pdf.rect(0, 0, pageWidth, pageHeight, "F");
+  paintPage(pdf, theme.background);
+  const [textRed, textGreen, textBlue] = rgb(theme.text);
+  const [mutedRed, mutedGreen, mutedBlue] = rgb(theme.muted);
   let y = margin + 2;
-  pdf.setTextColor(20, 19, 18);
+  pdf.setTextColor(textRed, textGreen, textBlue);
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(16);
   pdf.text(pdf.splitTextToSize(title, contentWidth).slice(0, 1), margin, y);
   y += 7;
   pdf.setFont("helvetica", "normal");
   pdf.setFontSize(10);
-  pdf.setTextColor(92, 91, 92);
+  pdf.setTextColor(mutedRed, mutedGreen, mutedBlue);
   const meta = [clientName, period, continued ? "continuação" : ""].filter(Boolean).join("  ·  ");
   if (meta) {
     pdf.text(pdf.splitTextToSize(meta, contentWidth).slice(0, 1), margin, y);
     y += 6;
   }
   if (campaign) {
-    pdf.setTextColor(20, 19, 18);
+    pdf.setTextColor(textRed, textGreen, textBlue);
     pdf.setFont("helvetica", "bold");
     const lines = pdf.splitTextToSize(campaign, contentWidth).slice(0, 2);
     pdf.text(lines, margin, y);
@@ -208,10 +215,10 @@ type ReportHeader = {
   campaign?: string;
 };
 
-function beginPage(pdf: jsPDF, header: ReportHeader, continued: boolean, first: boolean): number {
+function beginPage(pdf: jsPDF, header: ReportHeader, continued: boolean, first: boolean, theme: DashboardTheme): number {
   if (!first) pdf.addPage();
   const contentWidth = pdf.internal.pageSize.getWidth() - MARGIN * 2;
-  return drawHeader(pdf, contentWidth, MARGIN, header.title, header.clientName, header.period, header.campaign, continued);
+  return drawHeader(pdf, contentWidth, MARGIN, header.title, header.clientName, header.period, header.campaign, continued, theme);
 }
 
 function drawDataTable(
@@ -219,13 +226,16 @@ function drawDataTable(
   widget: PdfWidget,
   rows: DataRow[],
   header: ReportHeader,
-  startY: number
+  startY: number,
+  theme: DashboardTheme
 ): number {
   const pageHeight = pdf.internal.pageSize.getHeight();
   const contentWidth = pdf.internal.pageSize.getWidth() - MARGIN * 2;
+  const [textRed, textGreen, textBlue] = rgb(theme.text);
+  const [mutedRed, mutedGreen, mutedBlue] = rgb(theme.muted);
   let y = startY;
-  if (y > pageHeight - 40) y = beginPage(pdf, header, true, false);
-  pdf.setTextColor(20, 19, 18);
+  if (y > pageHeight - 40) y = beginPage(pdf, header, true, false, theme);
+  pdf.setTextColor(textRed, textGreen, textBlue);
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(12);
   pdf.text(pdf.splitTextToSize(widget.title, contentWidth).slice(0, 1), MARGIN, y);
@@ -236,7 +246,7 @@ function drawDataTable(
   if (!columns.length || !shown.length) {
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(9);
-    pdf.setTextColor(92, 91, 92);
+    pdf.setTextColor(mutedRed, mutedGreen, mutedBlue);
     pdf.text("Sem dados para esta seleção.", MARGIN, y + 5);
     return y + 12;
   }
@@ -259,8 +269,7 @@ function drawDataTable(
     alternateRowStyles: { fillColor: [36, 35, 34] },
     willDrawPage: (data) => {
       if (data.pageNumber > 1) {
-        paintPage(pdf);
-        drawHeader(pdf, contentWidth, MARGIN, header.title, header.clientName, header.period, header.campaign, true);
+        drawHeader(pdf, contentWidth, MARGIN, header.title, header.clientName, header.period, header.campaign, true, theme);
       }
     },
   });
@@ -268,7 +277,7 @@ function drawDataTable(
   if (rows.length > shown.length) {
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(8);
-    pdf.setTextColor(92, 91, 92);
+    pdf.setTextColor(mutedRed, mutedGreen, mutedBlue);
     pdf.text(`Mostrando ${shown.length} de ${rows.length} linhas.`, MARGIN, finalY + 5);
     return finalY + 12;
   }
@@ -290,7 +299,7 @@ async function writeReport(
   const contentWidth = pdf.internal.pageSize.getWidth() - MARGIN * 2;
   const pageHeight = pdf.internal.pageSize.getHeight();
   const canvasWidth = input.theme.canvasWidth || 1200;
-  let y = beginPage(pdf, input.header, false, input.first);
+  let y = beginPage(pdf, input.header, false, input.first, input.theme);
   let cursorX = MARGIN;
   let rowHeight = 0;
   const visuals = byPosition(input.widgets.filter((widget) => widget.type !== "table"));
@@ -307,7 +316,7 @@ async function writeReport(
       rowHeight = 0;
     }
     if (y + boxHeight > pageHeight - MARGIN) {
-      y = beginPage(pdf, input.header, true, false);
+      y = beginPage(pdf, input.header, true, false, input.theme);
       cursorX = MARGIN;
       rowHeight = 0;
     }
@@ -318,7 +327,7 @@ async function writeReport(
   if (rowHeight) y += rowHeight + 8;
   for (const widget of byPosition(input.widgets.filter((widget) => widget.type === "table"))) {
     const rows = widgetRows(widget, input.pageRows, input.rowsByView, input.filters);
-    y = drawDataTable(pdf, widget, rows, input.header, y);
+    y = drawDataTable(pdf, widget, rows, input.header, y, input.theme);
   }
 }
 
