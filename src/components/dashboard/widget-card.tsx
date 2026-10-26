@@ -59,11 +59,18 @@ const chartTooltip = {
   itemStyle: { color: "#000000" },
 };
 
+function smallMoney(value: number): boolean {
+  return value !== 0 && Math.abs(value) < 0.1;
+}
+
 export function formatTableCell(column: string, value: unknown): string {
   if (value == null || value === "") return "";
   if (typeof value !== "number" || !Number.isFinite(value)) return String(value);
   if (/spend|cost|cpc|cpm|cpp|amount|budget|revenue/i.test(column)) {
-    return value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return value.toLocaleString("pt-BR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: smallMoney(value) ? 4 : 2,
+    });
   }
   if (Number.isInteger(value)) return value.toLocaleString("pt-BR");
   return value.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
@@ -182,7 +189,7 @@ function formatValue(value: number, format?: string) {
     return value.toLocaleString("pt-BR", {
       style: "currency",
       currency: "BRL",
-      maximumFractionDigits: 2,
+      maximumFractionDigits: smallMoney(value) ? 4 : 2,
     });
   }
   if (format === "percent") {
@@ -192,6 +199,31 @@ function formatValue(value: number, format?: string) {
     });
   }
   return value.toLocaleString("pt-BR");
+}
+
+function fillDateGaps(data: { name: string; value: number }[]): { name: string; value: number | null }[] {
+  const isDate = /^\d{4}-\d{2}-\d{2}$/;
+  if (data.length < 2 || data.some((point) => !isDate.test(point.name))) return data;
+  const DAY = 86400000;
+  const out: { name: string; value: number | null }[] = [];
+  data.forEach((point, index) => {
+    out.push(point);
+    const next = data[index + 1];
+    if (!next) return;
+    const from = Date.parse(`${point.name}T00:00:00Z`);
+    const to = Date.parse(`${next.name}T00:00:00Z`);
+    if ((to - from) / DAY > 31) {
+      for (let time = from + DAY; time < to; time += DAY) {
+        out.push({ name: new Date(time).toISOString().slice(0, 10), value: null });
+      }
+    }
+  });
+  return out;
+}
+
+function shortLabel(value: unknown): string {
+  const text = String(value ?? "");
+  return text.length > 18 ? `${text.slice(0, 17)}…` : text;
 }
 
 function axisFormat(format?: string) {
@@ -473,19 +505,25 @@ function ChartBody({
     config.format || (/^(cpm|cpc|cpp|spend|revenue)$/.test(metric) ? "currency" : undefined);
   const data = groupByDimension(rows, dimension, metric);
   const tick = axisFormat(chartFormat);
+  const yWidth = chartFormat === "currency" ? 84 : 64;
   if (widget.type === "line") {
+    const lineData = /date/i.test(dimension) ? fillDateGaps(data) : data;
     return (
-      <LineChart width={width} height={height} data={data}>
+      <LineChart width={width} height={height} data={lineData}>
         <CartesianGrid stroke={grid} />
-        <XAxis dataKey="name" stroke={look.muted} fontSize={11} />
-        <YAxis stroke={look.muted} fontSize={11} tickFormatter={tick} width={56} />
-        <Tooltip {...chartTooltip} formatter={(value) => tick(Number(value))} />
+        <XAxis dataKey="name" stroke={look.muted} fontSize={11} minTickGap={24} />
+        <YAxis stroke={look.muted} fontSize={11} tickFormatter={tick} width={yWidth} />
+        <Tooltip
+          {...chartTooltip}
+          formatter={(value) => (value == null ? "Sem dados" : tick(Number(value)))}
+        />
         <Line
           type="monotone"
           dataKey="value"
           stroke={accent}
           strokeWidth={2}
           dot={false}
+          connectNulls={false}
           isAnimationActive={!frozen}
         />
       </LineChart>
@@ -495,8 +533,8 @@ function ChartBody({
   return (
     <BarChart width={width} height={height} data={data}>
       <CartesianGrid stroke={grid} />
-      <XAxis dataKey="name" stroke={look.muted} fontSize={11} />
-      <YAxis stroke={look.muted} fontSize={11} tickFormatter={tick} width={48} />
+      <XAxis dataKey="name" stroke={look.muted} fontSize={11} tickFormatter={shortLabel} minTickGap={12} />
+      <YAxis stroke={look.muted} fontSize={11} tickFormatter={tick} width={yWidth} />
       <Tooltip {...chartTooltip} formatter={(value) => tick(Number(value))} />
       <Bar dataKey="value" fill={accent} radius={[4, 4, 0, 0]} isAnimationActive={!frozen} />
     </BarChart>
