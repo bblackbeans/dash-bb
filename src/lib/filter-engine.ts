@@ -177,6 +177,7 @@ const RATE_FORMULAS: Record<string, { numerator: string; denominator: string; sc
   frequency: { numerator: "impressions", denominator: "reach", scale: 1 },
   cpl: { numerator: "spend", denominator: "leads", scale: 1 },
   cpl_whatsapp: { numerator: "spend", denominator: "whatsapp", scale: 1 },
+  cost_per_thruplay: { numerator: "spend", denominator: "thruplays", scale: 1 },
 };
 
 export function sumMetric(rows: DataRow[], metric: string): number {
@@ -268,4 +269,40 @@ export function filterFacets(rows: DataRow[]): { key: string; values: string[] }
     .map((key) => ({ key, values: uniqueValues(rows, key) }))
     .filter((facet) => facet.values.length > 1)
     .slice(0, 8);
+}
+
+// Tabela agrupada: uma linha por valor de `groupBy`, somando as métricas (taxas são recalculadas),
+// mais uma linha de total. Colunas de texto só aparecem quando todas as linhas do grupo são iguais.
+export function groupRowsForTable(
+  rows: DataRow[],
+  groupBy: string,
+  columns: string[]
+): { rows: DataRow[]; total: DataRow } {
+  const groups = new Map<string, DataRow[]>();
+  for (const row of rows) {
+    const key = String(row[groupBy] ?? "");
+    const list = groups.get(key);
+    if (list) list.push(row);
+    else groups.set(key, [row]);
+  }
+  const numeric = new Set(
+    columns.filter((column) => column in RATE_FORMULAS || rows.some((row) => typeof row[column] === "number"))
+  );
+  const summarize = (list: DataRow[], label: string): DataRow => {
+    const out: DataRow = { [groupBy]: label };
+    for (const column of columns) {
+      if (column === groupBy) continue;
+      if (numeric.has(column)) {
+        out[column] = Math.round(aggregateMetric(list, column) * 100) / 100;
+      } else {
+        const values = new Set(list.map((row) => String(row[column] ?? "")));
+        if (values.size === 1) out[column] = [...values][0];
+      }
+    }
+    return out;
+  };
+  const sortColumn = columns.find((column) => column !== groupBy && numeric.has(column) && !(column in RATE_FORMULAS));
+  const grouped = [...groups.entries()].map(([key, list]) => summarize(list, key));
+  if (sortColumn) grouped.sort((a, b) => Number(b[sortColumn] ?? 0) - Number(a[sortColumn] ?? 0));
+  return { rows: grouped, total: summarize(rows, "Total") };
 }

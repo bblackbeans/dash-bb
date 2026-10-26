@@ -17,7 +17,7 @@ import {
 } from "recharts";
 import type { DataRow } from "@/lib/mock-loader";
 import type { DashboardTheme } from "@/lib/dashboard-theme";
-import { aggregateMetric, groupByDimension, sumMetric } from "@/lib/filter-engine";
+import { aggregateMetric, groupByDimension, groupRowsForTable, sumMetric } from "@/lib/filter-engine";
 import {
   fieldLabel,
   parseWidgetConfig,
@@ -93,11 +93,13 @@ function TableView({
   rows,
   labels,
   muted,
+  total,
 }: {
   columns: string[];
   rows: DataRow[];
   labels: Record<string, string> | undefined;
   muted: string;
+  total?: DataRow;
 }) {
   const [sort, setSort] = useState<{ column: string; direction: "asc" | "desc" } | null>(null);
   const ordered = [...rows];
@@ -160,6 +162,15 @@ function TableView({
               ))}
             </tr>
           ))}
+          {total ? (
+            <tr style={{ borderTop: `2px solid ${muted}66`, fontWeight: 600 }}>
+              {columns.map((column) => (
+                <td key={column} className="px-2 py-2 whitespace-nowrap">
+                  {formatTableCell(column, total[column])}
+                </td>
+              ))}
+            </tr>
+          ) : null}
         </tbody>
       </table>
     </div>
@@ -424,10 +435,12 @@ function ChartBody({
 
   if (widget.type === "table") {
     const columns = config.columns || Object.keys(rows[0] || {});
+    const grouped = config.groupBy ? groupRowsForTable(rows, config.groupBy, columns) : null;
     return (
       <TableView
         columns={columns}
-        rows={rows}
+        rows={grouped ? grouped.rows : rows}
+        total={grouped?.total}
         labels={config.columnLabels}
         muted={look.muted}
       />

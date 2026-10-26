@@ -7,6 +7,7 @@ import { Download } from "lucide-react";
 import { domToJpeg } from "modern-screenshot";
 import {
   filterDataset,
+  groupRowsForTable,
   resolveDateRange,
   uniqueValues,
   type DashboardFilters,
@@ -242,7 +243,9 @@ function drawDataTable(
   y += 3;
   const config = parseWidgetConfig(widget.configJson);
   const columns = (config.columns?.length ? config.columns : Object.keys(rows[0] || {})).slice(0, 12);
-  const shown = rows.slice(0, TABLE_ROW_LIMIT);
+  const grouped = config.groupBy ? groupRowsForTable(rows, config.groupBy, columns) : null;
+  const shown = (grouped ? grouped.rows : rows).slice(0, TABLE_ROW_LIMIT);
+  const totalRow = grouped && shown.length ? grouped.total : null;
   if (!columns.length || !shown.length) {
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(9);
@@ -254,7 +257,9 @@ function drawDataTable(
     startY: y + 3,
     margin: { left: MARGIN, right: MARGIN, top: 32, bottom: MARGIN },
     head: [columns.map((column) => config.columnLabels?.[column] || fieldLabel(column))],
-    body: shown.map((row) => columns.map((column) => formatTableCell(column, row[column]))),
+    body: [...shown, ...(totalRow ? [totalRow] : [])].map((row) =>
+      columns.map((column) => formatTableCell(column, row[column]))
+    ),
     styles: {
       fontSize: columns.length > 7 ? 7 : 8,
       cellPadding: 1.4,

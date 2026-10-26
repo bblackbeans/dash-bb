@@ -36,6 +36,8 @@ export type WidgetConfig = {
   format?: "currency";
   columns?: string[];
   columnLabels?: Record<string, string>;
+  // Tabela: soma as linhas por esta coluna (ex.: campanha) e mostra uma linha de total.
+  groupBy?: string;
   stages?: string[];
   numerator?: string;
   denominator?: string;
@@ -85,6 +87,9 @@ const FIELD_LABELS: Record<string, string> = {
   landing_page_views: "Visualizações da página",
   engagements: "Engajamentos",
   inline_post_engagement: "Engajamento com a publicação",
+  thruplays: "ThruPlays",
+  cost_per_thruplay: "Custo por ThruPlay",
+  video_views: "Visualizações de vídeo",
   a_video_view: "Visualizações de vídeo",
   a_video_thruplay_watched_actions_video_view: "ThruPlays",
   ctr: "CTR (%)",
@@ -255,6 +260,7 @@ export function sanitizeWidgetConfig(type: string, input: unknown): WidgetConfig
     format,
     columns: cleanKeys(src.columns, 40),
     columnLabels: cleanLabels(src.columnLabels),
+    groupBy: cleanKey(src.groupBy),
     stages: cleanKeys(src.stages, 8),
     numerator: cleanKey(src.numerator),
     denominator: cleanKey(src.denominator),

@@ -49,6 +49,8 @@ const RULES: PlatformRule[] = [
         kind: "count",
       },
       { key: "landing_page_views", column: "a_landing_page_view", kind: "count" },
+      { key: "thruplays", column: "a_video_thruplay_watched_actions_video_view", kind: "count" },
+      { key: "video_views", column: "a_video_view", kind: "count" },
     ],
   },
   {
@@ -153,7 +155,12 @@ const ACTION_METRICS: { key: string; action: string }[] = [
   { key: "leads", action: "lead" },
   { key: "whatsapp", action: "onsite_conversion.messaging_conversation_started_7d" },
   { key: "landing_page_views", action: "landing_page_view" },
+  { key: "thruplays", action: "video_thruplay_watched_actions__video_view" },
+  { key: "video_views", action: "video_view" },
 ];
+
+// Métricas do Meta que podem vir da tabela de ações; se faltar alguma, procuramos essa tabela.
+export const ACTION_KEYS = ACTION_METRICS.map((metric) => metric.key);
 
 export function actionsTableName(table: string): string | null {
   const match = /^(facebook_(?:campaign|ad)_insights)(_\d+)?$/.exec(table);

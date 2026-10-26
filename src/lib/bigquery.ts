@@ -3,6 +3,7 @@ import path from "path";
 import { BigQuery } from "@google-cloud/bigquery";
 import type { DataRow } from "./mock-loader";
 import {
+  ACTION_KEYS,
   buildPlatformSql,
   actionsTableName,
   planPlatform,
@@ -196,7 +197,9 @@ async function loadPlan(
   const isTable = String(metadata.type || "TABLE") === "TABLE";
   let plan = isTable ? planPlatform(fields) : null;
   // Meta sem colunas de conversão: procura a tabela de ações do mesmo dataset.
-  const sibling = plan && !plan.metrics.some((m) => m.key === "leads") ? actionsTableName(table) : null;
+  const missingAction =
+    plan && plan.platform === "meta" && ACTION_KEYS.some((key) => !plan!.metrics.some((m) => m.key === key));
+  const sibling = missingAction ? actionsTableName(table) : null;
   if (plan && sibling) {
     try {
       const [actions] = await bq.dataset(dataset).table(sibling).getMetadata();
