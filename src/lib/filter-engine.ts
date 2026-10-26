@@ -178,6 +178,7 @@ const RATE_FORMULAS: Record<string, { numerator: string; denominator: string; sc
   cpl: { numerator: "spend", denominator: "leads", scale: 1 },
   cpl_whatsapp: { numerator: "spend", denominator: "whatsapp", scale: 1 },
   cost_per_thruplay: { numerator: "spend", denominator: "thruplays", scale: 1 },
+  cost_per_video_view: { numerator: "spend", denominator: "video_views", scale: 1 },
 };
 
 export function sumMetric(rows: DataRow[], metric: string): number {

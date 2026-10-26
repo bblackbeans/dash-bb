@@ -66,6 +66,10 @@ const RULES: PlatformRule[] = [
       { key: "leads", column: "oneclickleads", kind: "count" },
       { key: "conversions", column: "externalwebsiteconversions", kind: "count" },
       { key: "engagements", column: "totalengagements", kind: "count" },
+      { key: "video_views", column: "videoviews", kind: "count" },
+      { key: "video_views_25", column: "videofirstquartilecompletions", kind: "count" },
+      { key: "video_views_50", column: "videomidpointcompletions", kind: "count" },
+      { key: "video_views_75", column: "videothirdquartilecompletions", kind: "count" },
     ],
   },
   {
@@ -119,6 +123,7 @@ export function planPlatform(fields: SchemaField[]): PlatformPlan | null {
     const derived = ["ctr", "cpc", "cpm"];
     if (keys.has("leads")) derived.push("cpl");
     if (keys.has("whatsapp")) derived.push("cpl_whatsapp");
+    if (rule.id === "linkedin" && keys.has("video_views")) derived.push("cost_per_video_view");
 
     const groupName = (rule.group && names.get(rule.group)) || null;
     const sourceColumns = new Set<string>([date, campaign, ...metrics.map((m) => m.column)]);
@@ -242,6 +247,9 @@ export function buildPlatformSql(
     `ROUND(SAFE_DIVIDE(spend, impressions) * 1000, 2) AS cpm`,
     ...(keys.has("leads") ? [`ROUND(SAFE_DIVIDE(spend, leads), 2) AS cpl`] : []),
     ...(keys.has("whatsapp") ? [`ROUND(SAFE_DIVIDE(spend, whatsapp), 2) AS cpl_whatsapp`] : []),
+    ...(plan.platform === "linkedin" && keys.has("video_views")
+      ? [`ROUND(SAFE_DIVIDE(spend, video_views), 4) AS cost_per_video_view`]
+      : []),
   ];
   const groupBy = dims.map((_, index) => index + 1).join(", ");
   const tableSums = fromTable.map((metric) =>
