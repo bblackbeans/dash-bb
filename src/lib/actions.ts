@@ -11,6 +11,7 @@ import {
   bigQueryConfigured,
   bigQueryLocation,
   bigQueryProjectId,
+  cleanNameFilter,
   describeBigQueryTable,
   listBigQueryDatasets,
   listBigQueryTables,
@@ -181,6 +182,7 @@ export async function createDashboardFromWizard(input: {
   mockPath: string;
   dataset?: string;
   table?: string;
+  nameFilter?: string;
   pages?: DashboardPageInput[];
   widgets: WidgetInput[];
 }): Promise<{ ok: true; slug: string } | { ok: false; error: string }> {
@@ -204,6 +206,7 @@ export async function createDashboardFromWizard(input: {
 
   const dataSource = useBigQuery ? "bigquery" : "mock";
   const mockPath = input.mockPath || "johnson-traffic.json";
+  const nameFilter = cleanNameFilter(input.nameFilter);
 
   const widgets = (input.widgets.length
     ? input.widgets
@@ -259,6 +262,7 @@ export async function createDashboardFromWizard(input: {
               dataset,
               table,
               location: bigQueryLocation(),
+              ...(nameFilter ? { nameFilter } : {}),
               pages,
             })
           : "{}",
@@ -647,6 +651,7 @@ export async function saveBigQuerySourceAction(input: {
   if (!dataset || !table) return { ok: false, error: "Escolha o dataset e a view." };
   const dashboard = await prisma.dashboard.findUnique({ where: { id: input.dashboardId } });
   if (!dashboard) return { ok: false, error: "Dashboard não encontrado." };
+  const nameFilter = parseBigQuerySource(dashboard.sourceJson)?.nameFilter;
   await prisma.dashboard.update({
     where: { id: dashboard.id },
     data: {
@@ -655,8 +660,34 @@ export async function saveBigQuerySourceAction(input: {
         dataset,
         table,
         location: process.env.BIGQUERY_LOCATION?.trim() || "US",
+        ...(nameFilter ? { nameFilter } : {}),
       }),
     },
+  });
+  revalidatePath(`/admin/clients/${input.clientSlug}/dashboards/${input.dashSlug}`);
+  revalidatePath(`/p/${input.clientSlug}/${input.dashSlug}`);
+  return { ok: true };
+}
+
+export async function saveBigQueryNameFilterAction(input: {
+  dashboardId: string;
+  clientSlug: string;
+  dashSlug: string;
+  nameFilter: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireSession();
+  const dashboard = await prisma.dashboard.findUnique({ where: { id: input.dashboardId } });
+  if (!dashboard) return { ok: false, error: "Dashboard não encontrado." };
+  const source = parseBigQuerySource(dashboard.sourceJson);
+  if (dashboard.dataSource !== "bigquery" || !source) {
+    return { ok: false, error: "Este dashboard não usa o BigQuery." };
+  }
+  const nameFilter = cleanNameFilter(input.nameFilter);
+  const { nameFilter: _previous, ...rest } = source;
+  void _previous;
+  await prisma.dashboard.update({
+    where: { id: dashboard.id },
+    data: { sourceJson: JSON.stringify({ ...rest, ...(nameFilter ? { nameFilter } : {}) }) },
   });
   revalidatePath(`/admin/clients/${input.clientSlug}/dashboards/${input.dashSlug}`);
   revalidatePath(`/p/${input.clientSlug}/${input.dashSlug}`);

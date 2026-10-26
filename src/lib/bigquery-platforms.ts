@@ -12,6 +12,7 @@ type PlatformRule = {
   id: "meta" | "linkedin" | "google_ads";
   date: string;
   campaign: string;
+  group?: string;
   account: string[];
   metrics: MetricRule[];
 };
@@ -20,6 +21,7 @@ export type PlatformPlan = {
   platform: PlatformRule["id"];
   dateColumn: string;
   campaignColumn: string;
+  groupColumn: string | null;
   accountColumn: string | null;
   metrics: MetricRule[];
   campaignIdColumn: string | null;
@@ -53,6 +55,7 @@ const RULES: PlatformRule[] = [
     id: "linkedin",
     date: "metric_date",
     campaign: "campaign_name",
+    group: "campaign_group_name",
     account: ["account_name", "account_id"],
     metrics: [
       { key: "spend", column: "costinlocalcurrency", kind: "money" },
@@ -115,7 +118,9 @@ export function planPlatform(fields: SchemaField[]): PlatformPlan | null {
     if (keys.has("leads")) derived.push("cpl");
     if (keys.has("whatsapp")) derived.push("cpl_whatsapp");
 
+    const groupName = (rule.group && names.get(rule.group)) || null;
     const sourceColumns = new Set<string>([date, campaign, ...metrics.map((m) => m.column)]);
+    if (groupName) sourceColumns.add(groupName);
     if (accountName) sourceColumns.add(accountName);
     const extras: { name: string; type: string }[] = [];
     for (const field of fields) {
@@ -132,6 +137,7 @@ export function planPlatform(fields: SchemaField[]): PlatformPlan | null {
       actionsTable: null,
       dateColumn: date,
       campaignColumn: campaign,
+      groupColumn: (rule.group && names.get(rule.group)) || null,
       accountColumn: accountName,
       metrics,
       derived,
@@ -177,7 +183,12 @@ export function withActions(
 }
 
 export function platformDimensions(plan: PlatformPlan): string[] {
-  return plan.accountColumn ? ["date", "account_name", "campaign_name"] : ["date", "campaign_name"];
+  return [
+    "date",
+    ...(plan.accountColumn ? ["account_name"] : []),
+    ...(plan.groupColumn ? ["campaign_group_name"] : []),
+    "campaign_name",
+  ];
 }
 
 export function platformMetrics(plan: PlatformPlan, extras: string[]): string[] {
@@ -190,13 +201,22 @@ export function buildPlatformSql(
   plan: PlatformPlan,
   tablePath: string,
   extraColumns: string[],
-  limit: number
+  limit: number,
+  hasNameFilter = false
 ): string {
   const dims = [
     `${tick(plan.dateColumn)} AS date`,
     ...(plan.accountColumn ? [`CAST(${tick(plan.accountColumn)} AS STRING) AS account_name`] : []),
+    ...(plan.groupColumn ? [`${tick(plan.groupColumn)} AS campaign_group_name`] : []),
     `${tick(plan.campaignColumn)} AS campaign_name`,
   ];
+  // Filtro fixo por nome: só entra campanha (ou grupo) cujo nome contém o texto. O texto vai como parâmetro.
+  const nameColumns = [plan.campaignColumn, ...(plan.groupColumn ? [plan.groupColumn] : [])];
+  const where = hasNameFilter
+    ? `WHERE ${nameColumns
+        .map((column) => `STRPOS(UPPER(CAST(${tick(column)} AS STRING)), UPPER(@nameFilter)) > 0`)
+        .join(" OR ")}`
+    : "";
   const fromTable = plan.metrics.filter((metric) => !metric.action);
   const fromActions = plan.metrics.filter((metric) => metric.action);
   const sumOf = (expr: string, metric: MetricRule) =>
@@ -226,6 +246,7 @@ export function buildPlatformSql(
 FROM (
   SELECT ${[...dims, ...tableSums, ...extras].join(", ")}
   FROM \`${tablePath}\`
+  ${where}
   GROUP BY ${groupBy}
 )
 ORDER BY date DESC
@@ -239,7 +260,7 @@ LIMIT ${limit}`;
     (metric) =>
       `SUM(IF(actions_action_type = '${metric.action}', actions_value, 0)) AS ${metric.key}`
   );
-  const outerDims = ["date", ...(plan.accountColumn ? ["account_name"] : []), "campaign_name"];
+  const outerDims = platformDimensions(plan);
   const baseDims = [
     ...dims,
     `CAST(${tick(plan.campaignIdColumn)} AS STRING) AS campaign_key`,
@@ -255,6 +276,7 @@ LIMIT ${limit}`;
   return `WITH base AS (
   SELECT ${[...baseDims, ...fromTable.map((metric) => sumOf(`SAFE_CAST(${tick(metric.column)} AS FLOAT64)`, metric)), ...extras].join(", ")}
   FROM \`${tablePath}\`
+  ${where}
   GROUP BY ${baseDims.map((_, index) => index + 1).join(", ")}
 ), act AS (
   SELECT metric_date AS date, CAST(campaign_id AS STRING) AS campaign_key, ${actionSums.join(", ")}

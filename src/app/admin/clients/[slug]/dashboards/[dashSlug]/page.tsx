@@ -153,6 +153,7 @@ export default async function AdminDashboardPage({ params }: Props) {
         connectionError={dashboard.dataSource === "bigquery" ? sourceError : ""}
         dataset={source?.dataset || ""}
         table={source?.table || ""}
+        nameFilter={source?.nameFilter || ""}
         pages={source?.pages || []}
       />
 

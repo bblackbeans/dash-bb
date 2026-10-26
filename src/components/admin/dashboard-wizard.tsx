@@ -193,6 +193,7 @@ export function DashboardWizard({
   const [tables, setTables] = useState<{ id: string; type: string }[]>([]);
   const [datasetId, setDatasetId] = useState("");
   const [tableId, setTableId] = useState("");
+  const [nameFilter, setNameFilter] = useState("");
   const [pages, setPages] = useState<PageDraft[]>([]);
   const [viewFields, setViewFields] = useState<
     Record<string, { metrics: string[]; dimensions: string[] }>
@@ -474,6 +475,7 @@ export function DashboardWizard({
         dataSource,
         mockPath,
         dataset: datasetId,
+        nameFilter,
         table: pages.find((page) => page.views[0])?.views[0] || tableId,
         pages: pages.filter((page) => page.views.length),
         widgets: payload,
@@ -694,6 +696,21 @@ export function DashboardWizard({
                     </option>
                   ))}
                 </Select>
+              </div>
+              <div>
+                <LabelWithHelp
+                  htmlFor="bqNameFilter"
+                  help="Opcional. Só entram as campanhas (ou grupos de campanhas) cujo nome contém este texto. Ex.: LAF."
+                >
+                  Filtrar campanhas pelo nome
+                </LabelWithHelp>
+                <Input
+                  id="bqNameFilter"
+                  value={nameFilter}
+                  maxLength={80}
+                  placeholder="Ex.: LAF (deixe vazio para trazer todas)"
+                  onChange={(event) => setNameFilter(event.target.value)}
+                />
               </div>
               {pages.length ? (
                 <div className="space-y-3">

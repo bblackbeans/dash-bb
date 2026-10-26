@@ -85,6 +85,8 @@ const FIELD_LABELS: Record<string, string> = {
   landing_page_views: "Visualizações da página",
   engagements: "Engajamentos",
   inline_post_engagement: "Engajamento com a publicação",
+  a_video_view: "Visualizações de vídeo",
+  a_video_thruplay_watched_actions_video_view: "ThruPlays",
   ctr: "CTR (%)",
   cpc: "CPC",
   cpm: "CPM",

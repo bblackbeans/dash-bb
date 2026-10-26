@@ -22,8 +22,14 @@ export type BigQuerySource = {
   dataset: string;
   table: string;
   location?: string;
+  // Só entram campanhas (ou grupos) cujo nome contém este texto.
+  nameFilter?: string;
   pages: DashboardDataPage[];
 };
+
+export function cleanNameFilter(value: unknown): string {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, 80) : "";
+}
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]{0,200}$/;
 
@@ -69,16 +75,19 @@ export function parseBigQuerySource(raw: string | null | undefined): BigQuerySou
       dataset?: string;
       table?: string;
       location?: string;
+      nameFilter?: unknown;
       pages?: unknown;
     };
     if (!parsed.dataset) return null;
     const pages = cleanPages(parsed.pages);
     const table = parsed.table || pages[0]?.views[0] || "";
     if (!table) return null;
+    const nameFilter = cleanNameFilter(parsed.nameFilter);
     return {
       dataset: parsed.dataset,
       table,
       location: parsed.location,
+      ...(nameFilter ? { nameFilter } : {}),
       pages: pages.length ? pages : [{ id: "principal", title: "Principal", views: [table] }],
     };
   } catch {
@@ -284,6 +293,7 @@ export async function loadBigQueryTableDetailed(source: {
   table: string;
   location?: string;
   fields?: string[];
+  nameFilter?: string;
 }): Promise<LoadedTable> {
   const projectId = bigQueryProjectId();
   if (!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(projectId)) {
@@ -292,11 +302,12 @@ export async function loadBigQueryTableDetailed(source: {
   const dataset = assertIdentifier(source.dataset, "Dataset");
   const table = assertIdentifier(source.table, "View");
   const fields = [...new Set(source.fields || [])].sort();
-  const key = `${projectId}.${dataset}.${table}|${fields.join(",")}`;
+  const nameFilter = cleanNameFilter(source.nameFilter);
+  const key = `${projectId}.${dataset}.${table}|${fields.join(",")}|${nameFilter.toUpperCase()}`;
   const hit = queryCache.get(key);
   if (hit && Date.now() - hit.at < QUERY_CACHE_TTL_MS) return hit.value;
 
-  const value = runLoad(projectId, dataset, table, fields);
+  const value = runLoad(projectId, dataset, table, fields, nameFilter);
   queryCache.set(key, { at: Date.now(), value });
   value.catch(() => queryCache.delete(key));
   return value;
@@ -306,18 +317,29 @@ async function runLoad(
   projectId: string,
   dataset: string,
   table: string,
-  fields: string[]
+  fields: string[],
+  nameFilter: string
 ): Promise<LoadedTable> {
   const bq = client();
   const location = await datasetLocation(bq, dataset);
   const { plan } = await loadPlan(bq, dataset, table);
   // Pede uma linha a mais para saber se o limite cortou dados.
   const query = plan
-    ? buildPlatformSql(plan, `${projectId}.${dataset}.${table}`, fields, ROW_LIMIT + 1)
+    ? buildPlatformSql(
+        plan,
+        `${projectId}.${dataset}.${table}`,
+        fields,
+        ROW_LIMIT + 1,
+        Boolean(nameFilter)
+      )
     : `SELECT * FROM \`${projectId}.${dataset}.${table}\` LIMIT ${ROW_LIMIT + 1}`;
-  const [all] = await bq.query({ query, location });
+  const [all] = await bq.query({
+    query,
+    location,
+    ...(plan && nameFilter ? { params: { nameFilter } } : {}),
+  });
   const truncated = all.length > ROW_LIMIT;
-  const rows = all.slice(0, ROW_LIMIT).map((row) => {
+  const loaded = all.slice(0, ROW_LIMIT).map((row) => {
     const next: DataRow = {};
     for (const [key, value] of Object.entries(row)) {
       if (!IDENTIFIER.test(key)) continue;
@@ -327,5 +349,16 @@ async function runLoad(
     }
     return next;
   });
+  // Views feitas à mão: o filtro por nome é aplicado nas linhas, se elas tiverem campanha ou grupo.
+  const needle = nameFilter.toUpperCase();
+  const rows =
+    !plan && needle
+      ? loaded.filter((row) => {
+          const names = [row.campaign_name, row.campaign_group_name].filter(
+            (value) => typeof value === "string"
+          ) as string[];
+          return !names.length || names.some((name) => name.toUpperCase().includes(needle));
+        })
+      : loaded;
   return { rows, truncated };
 }
