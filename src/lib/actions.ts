@@ -162,6 +162,10 @@ export type WidgetInput = {
   dimension?: string;
   format?: string;
   columns?: string[];
+  columnLabels?: Record<string, string>;
+  groupBy?: string;
+  stages?: string[];
+  colSpan?: number;
   pageId?: string;
   view?: string;
 };
@@ -219,7 +223,7 @@ export async function createDashboardFromWizard(input: {
     title: w.title,
     sortOrder: i,
     configJson: JSON.stringify(
-        w.type === "table"
+      w.type === "table" && !w.groupBy
         ? {
             colSpan: defaultColSpan(w.type),
             columns:
@@ -238,10 +242,16 @@ export async function createDashboardFromWizard(input: {
             view: w.view,
           }
         : {
-            colSpan: defaultColSpan(w.type),
-            metric: w.metric || "sessions",
-            dimension: w.dimension,
-            format: w.format,
+            ...sanitizeWidgetConfig(w.type, {
+              colSpan: w.colSpan,
+              metric: w.type === "table" || w.type === "funnel" ? undefined : w.metric || "sessions",
+              dimension: w.dimension,
+              format: w.format,
+              columns: w.columns,
+              columnLabels: w.columnLabels,
+              groupBy: w.groupBy,
+              stages: w.stages,
+            }),
             pageId: w.pageId,
             view: w.view,
           }
@@ -263,6 +273,8 @@ export async function createDashboardFromWizard(input: {
               table,
               location: bigQueryLocation(),
               ...(nameFilter ? { nameFilter } : {}),
+              // Dashboards novos tratam views de plataforma (Meta, LinkedIn) por dentro do sistema.
+              smart: true,
               pages,
             })
           : "{}",
@@ -423,6 +435,8 @@ export async function saveDashboardLayoutAction(input: {
         dataset: source.dataset,
         table: pages[0].views[0],
         location: source.location,
+        ...(source.nameFilter ? { nameFilter: source.nameFilter } : {}),
+        ...(source.smart ? { smart: true } : {}),
         pages,
       });
     }
@@ -612,13 +626,15 @@ export async function listBigQueryDatasetsAction(): Promise<
 
 export async function describeBigQueryTableAction(
   dataset: string,
-  table: string
+  table: string,
+  options: { smart?: boolean } = {}
 ): Promise<
-  { ok: true; metrics: string[]; dimensions: string[] } | { ok: false; error: string }
+  | { ok: true; metrics: string[]; dimensions: string[]; platform?: string; active?: string[] }
+  | { ok: false; error: string }
 > {
   await requireSession();
   try {
-    return { ok: true, ...(await describeBigQueryTable(dataset, table)) };
+    return { ok: true, ...(await describeBigQueryTable(dataset, table, options)) };
   } catch (error) {
     return {
       ok: false,
@@ -651,7 +667,8 @@ export async function saveBigQuerySourceAction(input: {
   if (!dataset || !table) return { ok: false, error: "Escolha o dataset e a view." };
   const dashboard = await prisma.dashboard.findUnique({ where: { id: input.dashboardId } });
   if (!dashboard) return { ok: false, error: "Dashboard não encontrado." };
-  const nameFilter = parseBigQuerySource(dashboard.sourceJson)?.nameFilter;
+  const previous = parseBigQuerySource(dashboard.sourceJson);
+  const nameFilter = previous?.nameFilter;
   await prisma.dashboard.update({
     where: { id: dashboard.id },
     data: {
@@ -661,6 +678,7 @@ export async function saveBigQuerySourceAction(input: {
         table,
         location: process.env.BIGQUERY_LOCATION?.trim() || "US",
         ...(nameFilter ? { nameFilter } : {}),
+        ...(previous?.smart ? { smart: true } : {}),
       }),
     },
   });

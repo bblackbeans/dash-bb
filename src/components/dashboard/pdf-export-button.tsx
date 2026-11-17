@@ -246,6 +246,7 @@ function drawDataTable(
   const grouped = config.groupBy ? groupRowsForTable(rows, config.groupBy, columns) : null;
   const shown = (grouped ? grouped.rows : rows).slice(0, TABLE_ROW_LIMIT);
   const totalRow = grouped && shown.length ? grouped.total : null;
+  const sourceCount = grouped ? grouped.rows.length : rows.length;
   if (!columns.length || !shown.length) {
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(9);
@@ -279,11 +280,11 @@ function drawDataTable(
     },
   });
   const finalY = (pdf as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || y + 8;
-  if (rows.length > shown.length) {
+  if (sourceCount > shown.length) {
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(8);
     pdf.setTextColor(mutedRed, mutedGreen, mutedBlue);
-    pdf.text(`Mostrando ${shown.length} de ${rows.length} linhas.`, MARGIN, finalY + 5);
+    pdf.text(`Mostrando ${shown.length} de ${sourceCount} linhas.`, MARGIN, finalY + 5);
     return finalY + 12;
   }
   return finalY + 8;

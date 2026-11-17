@@ -10,6 +10,7 @@ import {
   filterComparison,
   filterDataset,
   filterFacets,
+  latestDate,
   type DashboardFilters,
 } from "@/lib/filter-engine";
 import { fieldLabel, parseWidgetConfig, type WidgetFrame } from "@/lib/widget-config";
@@ -51,6 +52,8 @@ type Props = {
   readOnly?: boolean;
   edit?: WidgetEditApi;
   toolbar?: ReactNode;
+  // No admin o título já está no topo da página: não repete.
+  hideHeading?: boolean;
 };
 
 export function DashboardViewer({
@@ -67,6 +70,7 @@ export function DashboardViewer({
   readOnly,
   edit,
   toolbar,
+  hideHeading,
 }: Props) {
   const [filters, setFilters] = useState<DashboardFilters>(defaultFilters);
   const [exporting, setExporting] = useState(false);
@@ -77,6 +81,8 @@ export function DashboardViewer({
   function selectPage(next: string) {
     setLocalPageId(next);
     onPageChange?.(next);
+    // Campanha, conjunto e anúncio são de cada rede: ao trocar de página, a escolha anterior não vale.
+    setFilters((current) => (Object.keys(current.facets).length ? { ...current, facets: {} } : current));
   }
 
   const pageRows = useMemo(() => {
@@ -119,24 +125,31 @@ export function DashboardViewer({
 
   const facets = useMemo(
     () =>
-      filterFacets(pageRows).map((facet) => ({
+      filterFacets(pageRows, filters).map((facet) => ({
         ...facet,
-        label: fieldLabel(facet.key),
+        label: facet.label || fieldLabel(facet.key),
       })),
-    [pageRows]
+    [pageRows, filters]
   );
+
+  const dataUntil = useMemo(() => latestDate(activePage ? pageRows : rows), [activePage, pageRows, rows]);
 
   return (
     <div className={edit ? "space-y-3" : "space-y-6"}>
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <div className="min-w-0 space-y-3">
-          {edit ? null : (
+          {edit || hideHeading ? null : (
             <header className="space-y-1">
               <h1 className="text-2xl font-semibold text-[var(--bb-cream)]">
                 {title}
               </h1>
               {subtitle ? (
                 <p className="text-sm text-[var(--bb-gray)]">{subtitle}</p>
+              ) : null}
+              {dataUntil ? (
+                <p className="text-xs text-[var(--bb-gray)]">
+                  Dados até {dataUntil.split("-").reverse().join("/")}
+                </p>
               ) : null}
               {readOnly ? (
                 <p className="text-xs uppercase tracking-wide text-[var(--bb-accent)]">
@@ -164,7 +177,12 @@ export function DashboardViewer({
             </div>
           ) : null}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-3">
+          {hideHeading && dataUntil ? (
+            <p className="text-xs text-[var(--bb-gray)]">
+              Dados até {dataUntil.split("-").reverse().join("/")}
+            </p>
+          ) : null}
           <PdfExportButton
             title={title}
             clientName={clientName || subtitle}

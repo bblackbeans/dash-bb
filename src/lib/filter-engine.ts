@@ -106,6 +106,16 @@ function rowDate(row: DataRow): string | null {
   return null;
 }
 
+// Data mais recente (AAAA-MM-DD) entre as linhas: mostra "Dados até" no dashboard.
+export function latestDate(rows: DataRow[]): string | null {
+  let latest: string | null = null;
+  for (const row of rows) {
+    const day = rowDate(row);
+    if (day && /^\d{4}-\d{2}-\d{2}$/.test(day) && (!latest || day > latest)) latest = day;
+  }
+  return latest;
+}
+
 function inDateRange(row: DataRow, start: string, end: string): boolean {
   const d = rowDate(row);
   if (!d) return true;
@@ -235,9 +245,6 @@ const FACET_PRIORITY = [
   "campaign_detail_name",
   "campaign_group_detail_name",
   "searchtermview_searchterm",
-  "ad_id",
-  "adset_id",
-  "campaign_id",
   "utmSource",
   "utmMedium",
   "ageRange",
@@ -253,7 +260,45 @@ function extraFacetKey(key: string): boolean {
   return /name|term|keyword|device|source|medium|campaign|adset|adgroup/i.test(key);
 }
 
-export function filterFacets(rows: DataRow[]): { key: string; values: string[] }[] {
+export type FacetInfo = { key: string; values: string[]; label?: string };
+
+// Os três níveis que o cliente vê nos dados de anúncios: campanha, conjunto e anúncio.
+// Meta: campanha > conjunto de anúncios > anúncio. LinkedIn: grupo > campanha > criativo,
+// mostrados com os mesmos nomes.
+const AD_LEVELS: { when: string[]; keys: [string, string, string] }[] = [
+  { when: ["adset_name", "ad_name"], keys: ["campaign_name", "adset_name", "ad_name"] },
+  { when: ["campaign_group_name", "creative_name"], keys: ["campaign_group_name", "campaign_name", "creative_name"] },
+];
+const AD_LEVEL_LABELS = ["Campanha", "Conjunto de anúncios", "Anúncio"];
+
+function adLevelsFor(rows: DataRow[]): [string, string, string] | null {
+  for (const level of AD_LEVELS) {
+    if (rows.some((row) => level.when.some((key) => key in row))) return level.keys;
+  }
+  return null;
+}
+
+export function filterFacets(rows: DataRow[], filters?: DashboardFilters): FacetInfo[] {
+  const levels = adLevelsFor(rows);
+  if (levels) {
+    // Mostra o nível só se ele tem mais de um valor. As opções de cada nível respeitam os outros
+    // filtros: escolher "BR" deixa só os conjuntos do BR.
+    return levels
+      .map((key, index) => ({ key, label: AD_LEVEL_LABELS[index] }))
+      // Campanha aparece sempre (mesmo sendo uma só, para o cliente ver de qual é); conjunto e anúncio
+      // só quando há mais de um.
+      .filter(({ key }, index) => uniqueValues(rows, key).length > (index === 0 ? 0 : 1))
+      .map(({ key, label }) => {
+        const others = filters
+          ? Object.fromEntries(Object.entries(filters.facets).filter(([facet]) => facet !== key))
+          : {};
+        const scoped = filters ? filterDataset(rows, { ...filters, facets: others }) : rows;
+        const values = new Set(uniqueValues(scoped, key));
+        for (const selected of filters?.facets[key] || []) values.add(selected);
+        return { key, label, values: Array.from(values).sort() };
+      });
+  }
+
   const keys = new Set<string>();
   for (const row of rows) {
     for (const key of Object.keys(row)) {
@@ -273,7 +318,7 @@ export function filterFacets(rows: DataRow[]): { key: string; values: string[] }
 }
 
 // Tabela agrupada: uma linha por valor de `groupBy`, somando as métricas (taxas são recalculadas),
-// mais uma linha de total. Colunas de texto só aparecem quando todas as linhas do grupo são iguais.
+// mais uma linha de total. Colunas de texto mostram o valor quando é um só, ou "Vários".
 export function groupRowsForTable(
   rows: DataRow[],
   groupBy: string,
@@ -294,10 +339,11 @@ export function groupRowsForTable(
     for (const column of columns) {
       if (column === groupBy) continue;
       if (numeric.has(column)) {
-        out[column] = Math.round(aggregateMetric(list, column) * 100) / 100;
+        out[column] = Math.round(aggregateMetric(list, column) * 10000) / 10000;
       } else {
-        const values = new Set(list.map((row) => String(row[column] ?? "")));
+        const values = new Set(list.map((row) => String(row[column] ?? "")).filter(Boolean));
         if (values.size === 1) out[column] = [...values][0];
+        else if (values.size > 1) out[column] = "Vários";
       }
     }
     return out;

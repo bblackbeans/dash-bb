@@ -92,6 +92,7 @@ const FIELD_LABELS: Record<string, string> = {
   video_views_25: "Views 25%",
   video_views_50: "Views 50%",
   video_views_75: "Views 75%",
+  video_views_100: "Views 100%",
   cost_per_video_view: "CPV (Custo por Video View)",
   video_views: "Visualizações de vídeo",
   a_video_view: "Visualizações de vídeo",

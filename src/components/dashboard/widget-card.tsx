@@ -221,9 +221,10 @@ function fillDateGaps(data: { name: string; value: number }[]): { name: string; 
   return out;
 }
 
+// Nomes longos de conjuntos costumam diferir só no começo e no fim: guarda os dois pedaços.
 function shortLabel(value: unknown): string {
   const text = String(value ?? "");
-  return text.length > 18 ? `${text.slice(0, 17)}…` : text;
+  return text.length > 24 ? `${text.slice(0, 17)}…${text.slice(-7)}` : text;
 }
 
 function axisFormat(format?: string) {
@@ -432,35 +433,49 @@ function ChartBody({
       name: fieldLabel(item),
       value: sumMetric(rows, item),
     }));
+    const first = steps[0]?.value || 0;
     const max = Math.max(...steps.map((step) => step.value), 1);
+    const pct = (value: number) =>
+      `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
     return (
-      <div className="flex h-full flex-col justify-center gap-2 overflow-auto">
-        {steps.map((step, index) => {
-          const previous = steps[index - 1]?.value;
-          const conversion = previous ? (step.value / previous) * 100 : null;
-          return (
-            <div key={`${step.name}-${index}`}>
-              <div className="mb-1 flex justify-between gap-2 text-xs" style={{ color: look.text }}>
-                <span>{step.name}</span>
-                <span style={{ color: look.muted }}>
-                  {formatValue(step.value)}
-                  {conversion !== null
-                    ? ` · ${conversion.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`
-                    : ""}
-                </span>
+      <div className="flex h-full flex-col gap-1.5 overflow-y-auto">
+        <div className="flex flex-col gap-1.5">
+          {steps.map((step, index) => {
+            const previous = steps[index - 1]?.value;
+            const ofFirst = index > 0 && first ? (step.value / first) * 100 : null;
+            const ofPrevious = previous ? (step.value / previous) * 100 : null;
+            return (
+              <div
+                key={`${step.name}-${index}`}
+                title={ofPrevious !== null ? `${pct(ofPrevious)} da etapa anterior` : undefined}
+              >
+                <div className="mb-0.5 flex items-baseline justify-between gap-2 text-xs" style={{ color: look.text }}>
+                  <span>{step.name}</span>
+                  <span>
+                    <strong>{formatValue(step.value)}</strong>
+                    {ofFirst !== null ? (
+                      <span style={{ color: look.muted }}> · {pct(ofFirst)}</span>
+                    ) : null}
+                  </span>
+                </div>
+                <div className="flex justify-center">
+                  <div
+                    className="h-3 rounded"
+                    style={{
+                      width: `${Math.max(6, (step.value / max) * 100)}%`,
+                      background: look.palette[index % look.palette.length] || accent,
+                    }}
+                  />
+                </div>
               </div>
-              <div className="flex justify-center">
-                <div
-                  className="h-7 rounded"
-                  style={{
-                    width: `${Math.max(12, (step.value / max) * 100)}%`,
-                    background: look.palette[index % look.palette.length] || accent,
-                  }}
-                />
-              </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
+        {steps.length > 1 ? (
+          <p className="mt-auto text-[11px] leading-tight" style={{ color: look.muted }}>
+            % = parte de &quot;{steps[0].name}&quot; que chegou até a etapa.
+          </p>
+        ) : null}
       </div>
     );
   }

@@ -5,6 +5,7 @@ import {
   Filter,
   Gauge,
   ImageIcon,
+  LayoutDashboard,
   LineChart,
   Percent,
   PanelLeftClose,
@@ -100,6 +101,7 @@ export function DashboardBuilder({
   rowsByView,
   pages,
   datasetId,
+  smart,
   initialWidgets,
   initialTheme,
   initialTemplates,
@@ -114,6 +116,7 @@ export function DashboardBuilder({
   rowsByView?: Record<string, DataRow[]>;
   pages?: DashboardPageTab[];
   datasetId?: string;
+  smart?: boolean;
   initialWidgets: WidgetDTO[];
   initialTheme: DashboardTheme;
   initialTemplates: DashboardTemplateDTO[];
@@ -369,7 +372,7 @@ export function DashboardBuilder({
     }
     setAddingView(`${targetPageId}:${view}`);
     setError("");
-    const described = await describeBigQueryTableAction(datasetId, view);
+    const described = await describeBigQueryTableAction(datasetId, view, { smart });
     setAddingView("");
     if (!described.ok) {
       setError(described.error);
@@ -970,6 +973,7 @@ export function DashboardBuilder({
 
         <div className="bb-dash-canvas">
           <DashboardViewer
+            hideHeading
             title={title}
             subtitle={subtitle}
             clientName={clientName}
@@ -994,6 +998,7 @@ export function DashboardBuilder({
                     setStudioOpen(true);
                   }}
                 >
+                  <LayoutDashboard className="h-4 w-4" aria-hidden />
                   Montar dashboard
                 </Button>
               )

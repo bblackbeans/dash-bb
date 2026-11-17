@@ -57,6 +57,7 @@ export async function loadDashboardData(dashboard: {
           location: source.location,
           fields: [...(used.get(table) || used.get("") || [])],
           nameFilter: source.nameFilter,
+          smart: source.smart,
         });
         return [table, loaded] as const;
       })

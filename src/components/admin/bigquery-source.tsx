@@ -6,12 +6,10 @@ import { Database } from "lucide-react";
 import {
   listBigQueryDatasetsAction,
   listBigQueryTablesAction,
-  saveBigQueryNameFilterAction,
   saveBigQuerySourceAction,
 } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 
 type Props = {
@@ -23,7 +21,6 @@ type Props = {
   connectionError?: string;
   dataset: string;
   table: string;
-  nameFilter?: string;
   pages?: { id: string; title: string; views: string[] }[];
 };
 
@@ -36,7 +33,6 @@ export function BigQuerySource({
   connectionError,
   dataset,
   table,
-  nameFilter = "",
   pages = [],
 }: Props) {
   const router = useRouter();
@@ -48,7 +44,6 @@ export function BigQuerySource({
   const [pending, setPending] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [filterText, setFilterText] = useState(nameFilter);
 
   async function loadDatasets() {
     setPending(true);
@@ -89,23 +84,6 @@ export function BigQuerySource({
       dashSlug,
       dataset: datasetId,
       table: tableId,
-    });
-    setPending(false);
-    if (!result.ok) {
-      setError(result.error);
-      return;
-    }
-    router.refresh();
-  }
-
-  async function saveFilter() {
-    setPending(true);
-    setError("");
-    const result = await saveBigQueryNameFilterAction({
-      dashboardId,
-      clientSlug,
-      dashSlug,
-      nameFilter: filterText,
     });
     setPending(false);
     if (!result.ok) {
@@ -192,32 +170,6 @@ export function BigQuerySource({
           Falta a chave da conta de serviço. Salve o JSON em secrets/bigquery-service-account.json e reinicie o servidor.
         </p>
       )}
-      {dataset && table ? (
-        <div className="mt-4 flex flex-wrap items-end gap-3">
-          <label className="min-w-56 space-y-1 text-xs text-[var(--bb-gray)]">
-            Filtrar campanhas pelo nome (opcional)
-            <Input
-              value={filterText}
-              maxLength={80}
-              placeholder="Ex.: LAF"
-              onChange={(event) => setFilterText(event.target.value)}
-            />
-          </label>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={saveFilter}
-            disabled={pending || filterText.trim() === nameFilter}
-          >
-            {pending ? "Salvando..." : filterText.trim() ? "Aplicar filtro" : "Remover filtro"}
-          </Button>
-          {nameFilter ? (
-            <p className="text-xs text-[var(--bb-gray)]">
-              Filtro ativo: campanhas ou grupos que contêm &quot;{nameFilter}&quot;.
-            </p>
-          ) : null}
-        </div>
-      ) : null}
       {error ? <p className="mt-3 text-sm text-red-300">{error}</p> : null}
     </Card>
   );

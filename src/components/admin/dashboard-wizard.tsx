@@ -36,6 +36,7 @@ import {
 import { slugify } from "@/lib/slug";
 import { Badge } from "@/components/ui/badge";
 import { fieldLabel } from "@/lib/widget-config";
+import { buildAdBoard, type BoardWidget } from "@/lib/auto-board";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -58,6 +59,8 @@ type WidgetDraft = {
   hint?: string;
   pageId?: string;
   view?: string;
+  // Painel completo montado sozinho para uma view de anúncios (vários blocos num cartão só).
+  board?: BoardWidget[];
 };
 
 type PageDraft = {
@@ -196,7 +199,7 @@ export function DashboardWizard({
   const [nameFilter, setNameFilter] = useState("");
   const [pages, setPages] = useState<PageDraft[]>([]);
   const [viewFields, setViewFields] = useState<
-    Record<string, { metrics: string[]; dimensions: string[] }>
+    Record<string, { metrics: string[]; dimensions: string[]; platform?: string; active?: string[] }>
   >({});
   const [bqFields, setBqFields] = useState<{ metrics: string[]; dimensions: string[] }>({
     metrics: [],
@@ -399,12 +402,17 @@ export function DashboardWizard({
     try {
       const described = await Promise.all(
         unique.map(async (view) => {
-          const result = await describeBigQueryTableAction(datasetId, view);
+          const result = await describeBigQueryTableAction(datasetId, view, { smart: true });
           return [
             view,
             result.ok
-              ? { metrics: result.metrics, dimensions: result.dimensions }
-              : { metrics: [] as string[], dimensions: [] as string[] },
+              ? {
+                  metrics: result.metrics,
+                  dimensions: result.dimensions,
+                  platform: result.platform,
+                  active: result.active,
+                }
+              : { metrics: [] as string[], dimensions: [] as string[], platform: undefined, active: undefined },
           ] as const;
         })
       );
@@ -415,6 +423,28 @@ export function DashboardWizard({
         for (const view of page.views) {
           const fieldsForView = map[view] || { metrics: [], dimensions: [] };
           if (!fieldsForView.metrics.length && !fieldsForView.dimensions.length) continue;
+          const detected = map[view] as { platform?: string; active?: string[] } | undefined;
+          if (detected?.platform && detected.active?.length) {
+            const board = buildAdBoard({
+              platform: detected.platform,
+              active: detected.active,
+              dimensions: fieldsForView.dimensions,
+            });
+            if (board.length) {
+              drafts.push({
+                id: `${page.id}-${view}`,
+                enabled: true,
+                type: "auto",
+                title: view.replaceAll("_", " "),
+                metric: "",
+                dimension: "",
+                pageId: page.id,
+                view,
+                board,
+              });
+              continue;
+            }
+          }
           const suggestion = suggestChart(view, fieldsForView.metrics, fieldsForView.dimensions);
           drafts.push({
             id: `${page.id}-${view}`,
@@ -454,16 +484,35 @@ export function DashboardWizard({
 
   function submit() {
     setError("");
-    const payload: WidgetInput[] = enabledWidgets.map((w) => ({
-      type: w.type,
-      title: w.title,
-      metric: w.metric || undefined,
-      dimension: w.dimension || undefined,
-      format: w.metric && MONEY_METRIC.test(w.metric) ? "currency" : undefined,
-      columns: w.type === "table" ? w.columns : undefined,
-      pageId: w.pageId,
-      view: w.view,
-    }));
+    const payload: WidgetInput[] = enabledWidgets.flatMap((w): WidgetInput[] =>
+      w.board
+        ? w.board.map((block) => ({
+            type: block.type,
+            title: block.title,
+            metric: block.metric,
+            dimension: block.dimension,
+            format: block.format,
+            colSpan: block.colSpan,
+            columns: block.columns,
+            columnLabels: block.columnLabels,
+            groupBy: block.groupBy,
+            stages: block.stages,
+            pageId: w.pageId,
+            view: w.view,
+          }))
+        : [
+            {
+              type: w.type,
+              title: w.title,
+              metric: w.metric || undefined,
+              dimension: w.dimension || undefined,
+              format: w.metric && MONEY_METRIC.test(w.metric) ? "currency" : undefined,
+              columns: w.type === "table" ? w.columns : undefined,
+              pageId: w.pageId,
+              view: w.view,
+            },
+          ]
+    );
 
     startTransition(async () => {
       const res = await createDashboardFromWizard({
@@ -790,9 +839,36 @@ export function DashboardWizard({
             })}
           </div>
           <p className="text-sm text-[var(--bb-gray)]">
-            Cada view entrou no tipo que combina com as colunas dela. Dá para trocar. Cliente: {clientName}.
+            {widgets.some((w) => w.board)
+              ? `O painel de cada view foi montado sozinho. Desmarque o que não quiser; depois de criar, ajuste em "Montar dashboard". Cliente: ${clientName}.`
+              : `Cada view entrou no tipo que combina com as colunas dela. Dá para trocar. Cliente: ${clientName}.`}
           </p>
           {widgets.map((w) => {
+            if (w.board) {
+              return (
+                <Card key={w.id} className="p-4">
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={w.enabled}
+                      onChange={(e) => updateWidget(w.id, { enabled: e.target.checked })}
+                    />
+                    <span className="space-y-2">
+                      <span className="block text-sm font-medium text-[var(--bb-cream)]">
+                        Painel completo: {w.title}
+                      </span>
+                      <span className="block text-sm text-[var(--bb-gray)]">
+                        Montado sozinho com o que essa view tem. Depois de criar, ajuste em &quot;Montar dashboard&quot;.
+                      </span>
+                      <span className="block text-xs text-[var(--bb-gray)]">
+                        {w.board.map((block) => block.title).join(" · ")}
+                      </span>
+                    </span>
+                  </label>
+                </Card>
+              );
+            }
             const meta = TYPE_META[w.type];
             const Icon = meta.icon;
             const widgetFields =
@@ -922,7 +998,9 @@ export function DashboardWizard({
             </div>
             <div>
               <dt className="text-[var(--bb-gray)]">Widgets</dt>
-              <dd>{enabledWidgets.length} selecionados</dd>
+              <dd>
+                {enabledWidgets.reduce((total, w) => total + (w.board ? w.board.length : 1), 0)} blocos
+              </dd>
             </div>
             {description ? (
               <div className="sm:col-span-2">
@@ -934,7 +1012,9 @@ export function DashboardWizard({
           <ul className="space-y-1 text-sm text-[var(--bb-gray)]">
             {enabledWidgets.map((w) => (
               <li key={w.id}>
-                • {TYPE_META[w.type].label}: {w.title}
+                {w.board
+                  ? `• Painel completo (${w.board.length} blocos): ${w.title}`
+                  : `• ${TYPE_META[w.type].label}: ${w.title}`}
                 {w.metric ? ` (${w.metric}` : ""}
                 {w.dimension ? ` / ${w.dimension}` : ""}
                 {w.metric ? ")" : ""}

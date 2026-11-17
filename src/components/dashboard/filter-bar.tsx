@@ -131,7 +131,10 @@ export function FilterBar({ filters, onChange, facets }: Props) {
 
   return (
     <div ref={rootRef} className="space-y-3 rounded-[var(--bb-radius-xl)] border border-[var(--bb-border)] bg-[var(--bb-surface)] p-3">
-      <div className="grid grid-cols-1 gap-2 min-[520px]:grid-cols-2 xl:grid-cols-4">
+      <div
+        className="grid gap-2"
+        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(15rem, 1fr))" }}
+      >
         <div className="relative min-w-0">
           <button
             type="button"
@@ -222,20 +225,11 @@ export function FilterBar({ filters, onChange, facets }: Props) {
           />
         ))}
 
-        {dirty ? (
-          <button
-            type="button"
-            onClick={() => onChange({ preset: "all", facets: {}, compare: false })}
-            className="inline-flex h-10 w-full items-center justify-center gap-1 rounded-[var(--bb-radius)] border border-[var(--bb-border)] px-3 text-sm text-[var(--bb-gray)] hover:text-[var(--bb-cream)]"
-          >
-            <X className="h-3.5 w-3.5" />
-            Limpar
-          </button>
-        ) : null}
       </div>
 
-      {chips.length ? (
-        <div className="flex flex-wrap gap-1.5">
+      {dirty ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-1.5">
           {chips.map((chip) => (
             <button
               key={chip.key}
@@ -247,6 +241,15 @@ export function FilterBar({ filters, onChange, facets }: Props) {
               <X className="h-3 w-3 text-[var(--bb-gray)]" />
             </button>
           ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => onChange({ preset: "all", facets: {}, compare: false })}
+            className="inline-flex h-8 items-center gap-1 rounded-[var(--bb-radius)] px-2 text-sm text-[var(--bb-gray)] hover:text-[var(--bb-cream)]"
+          >
+            <X className="h-3.5 w-3.5" />
+            Limpar filtros
+          </button>
         </div>
       ) : null}
     </div>

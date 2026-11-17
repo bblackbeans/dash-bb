@@ -13,6 +13,9 @@ type PlatformRule = {
   date: string;
   campaign: string;
   group?: string;
+  // Níveis abaixo da campanha: conjunto de anúncios e anúncio (no LinkedIn, o criativo).
+  adset?: string;
+  ad?: string;
   account: string[];
   metrics: MetricRule[];
 };
@@ -22,6 +25,8 @@ export type PlatformPlan = {
   dateColumn: string;
   campaignColumn: string;
   groupColumn: string | null;
+  adsetColumn: string | null;
+  adColumn: string | null;
   accountColumn: string | null;
   metrics: MetricRule[];
   campaignIdColumn: string | null;
@@ -36,6 +41,8 @@ const RULES: PlatformRule[] = [
     id: "meta",
     date: "metric_date",
     campaign: "campaign_name",
+    adset: "adset_name",
+    ad: "ad_name",
     account: ["account_name", "account_id"],
     metrics: [
       { key: "spend", column: "spend", kind: "money" },
@@ -51,6 +58,10 @@ const RULES: PlatformRule[] = [
       { key: "landing_page_views", column: "a_landing_page_view", kind: "count" },
       { key: "thruplays", column: "a_video_thruplay_watched_actions_video_view", kind: "count" },
       { key: "video_views", column: "a_video_view", kind: "count" },
+      { key: "video_views_25", column: "a_video_p25_watched_actions_video_view", kind: "count" },
+      { key: "video_views_50", column: "a_video_p50_watched_actions_video_view", kind: "count" },
+      { key: "video_views_75", column: "a_video_p75_watched_actions_video_view", kind: "count" },
+      { key: "video_views_100", column: "a_video_p100_watched_actions_video_view", kind: "count" },
     ],
   },
   {
@@ -58,6 +69,7 @@ const RULES: PlatformRule[] = [
     date: "metric_date",
     campaign: "campaign_name",
     group: "campaign_group_name",
+    ad: "creative_name",
     account: ["account_name", "account_id"],
     metrics: [
       { key: "spend", column: "costinlocalcurrency", kind: "money" },
@@ -145,6 +157,8 @@ export function planPlatform(fields: SchemaField[]): PlatformPlan | null {
       dateColumn: date,
       campaignColumn: campaign,
       groupColumn: (rule.group && names.get(rule.group)) || null,
+      adsetColumn: (rule.adset && names.get(rule.adset)) || null,
+      adColumn: (rule.ad && names.get(rule.ad)) || null,
       accountColumn: accountName,
       metrics,
       derived,
@@ -162,6 +176,10 @@ const ACTION_METRICS: { key: string; action: string }[] = [
   { key: "landing_page_views", action: "landing_page_view" },
   { key: "thruplays", action: "video_thruplay_watched_actions__video_view" },
   { key: "video_views", action: "video_view" },
+  { key: "video_views_25", action: "video_p25_watched_actions__video_view" },
+  { key: "video_views_50", action: "video_p50_watched_actions__video_view" },
+  { key: "video_views_75", action: "video_p75_watched_actions__video_view" },
+  { key: "video_views_100", action: "video_p100_watched_actions__video_view" },
 ];
 
 // Métricas do Meta que podem vir da tabela de ações; se faltar alguma, procuramos essa tabela.
@@ -194,12 +212,20 @@ export function withActions(
   return { ...plan, actionsTable, metrics: [...plan.metrics, ...added], derived };
 }
 
-export function platformDimensions(plan: PlatformPlan): string[] {
+// Nomes (aliases) dos níveis abaixo da campanha que esta fonte oferece.
+export function detailDimensionNames(plan: PlatformPlan): string[] {
+  const adAlias = plan.platform === "linkedin" ? "creative_name" : "ad_name";
+  return [...(plan.adsetColumn ? ["adset_name"] : []), ...(plan.adColumn ? [adAlias] : [])];
+}
+
+export function platformDimensions(plan: PlatformPlan, detail: string[] = []): string[] {
+  const wanted = detailDimensionNames(plan).filter((name) => detail.includes(name));
   return [
     "date",
     ...(plan.accountColumn ? ["account_name"] : []),
     ...(plan.groupColumn ? ["campaign_group_name"] : []),
     "campaign_name",
+    ...wanted,
   ];
 }
 
@@ -214,13 +240,22 @@ export function buildPlatformSql(
   tablePath: string,
   extraColumns: string[],
   limit: number,
-  hasNameFilter = false
+  hasNameFilter = false,
+  detail: string[] = []
 ): string {
+  // Com a tabela de ações (nível campanha) o detalhe por conjunto e anúncio não é seguro: não entra.
+  const detailOn = plan.actionsTable ? [] : detail;
+  const wantedDetail = detailDimensionNames(plan).filter((name) => detailOn.includes(name));
   const dims = [
     `${tick(plan.dateColumn)} AS date`,
     ...(plan.accountColumn ? [`CAST(${tick(plan.accountColumn)} AS STRING) AS account_name`] : []),
     ...(plan.groupColumn ? [`${tick(plan.groupColumn)} AS campaign_group_name`] : []),
     `${tick(plan.campaignColumn)} AS campaign_name`,
+    ...wantedDetail.map((name) =>
+      name === "adset_name"
+        ? `${tick(plan.adsetColumn as string)} AS adset_name`
+        : `${tick(plan.adColumn as string)} AS ${name}`
+    ),
   ];
   // Filtro fixo por nome: só entra campanha (ou grupo) cujo nome contém o texto. O texto vai como parâmetro.
   const nameColumns = [plan.campaignColumn, ...(plan.groupColumn ? [plan.groupColumn] : [])];
@@ -275,7 +310,7 @@ LIMIT ${limit}`;
     (metric) =>
       `SUM(IF(actions_action_type = '${metric.action}', actions_value, 0)) AS ${metric.key}`
   );
-  const outerDims = platformDimensions(plan);
+  const outerDims = platformDimensions(plan, wantedDetail);
   const baseDims = [
     ...dims,
     `CAST(${tick(plan.campaignIdColumn)} AS STRING) AS campaign_key`,

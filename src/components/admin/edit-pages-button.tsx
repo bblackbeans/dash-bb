@@ -35,7 +35,7 @@ export function EditPagesButton() {
   if (!ready) return null;
 
   return (
-    <Button type="button" size="sm" className="shrink-0" onClick={() => openPages?.()}>
+    <Button type="button" variant="secondary" className="h-10 shrink-0 px-4" onClick={() => openPages?.()}>
       <Pencil className="h-4 w-4" />
       Editar páginas
     </Button>

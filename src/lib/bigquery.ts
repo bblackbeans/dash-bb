@@ -2,9 +2,11 @@ import fs from "fs";
 import path from "path";
 import { BigQuery } from "@google-cloud/bigquery";
 import type { DataRow } from "./mock-loader";
+import { aggregateMetric } from "./filter-engine";
 import {
   ACTION_KEYS,
   buildPlatformSql,
+  detailDimensionNames,
   actionsTableName,
   planPlatform,
   platformDimensions,
@@ -25,6 +27,8 @@ export type BigQuerySource = {
   location?: string;
   // Só entram campanhas (ou grupos) cujo nome contém este texto.
   nameFilter?: string;
+  // Dashboards novos tratam views de plataforma (Meta, LinkedIn...) como tabelas de plataforma.
+  smart?: boolean;
   pages: DashboardDataPage[];
 };
 
@@ -77,6 +81,7 @@ export function parseBigQuerySource(raw: string | null | undefined): BigQuerySou
       table?: string;
       location?: string;
       nameFilter?: unknown;
+      smart?: unknown;
       pages?: unknown;
     };
     if (!parsed.dataset) return null;
@@ -89,6 +94,7 @@ export function parseBigQuerySource(raw: string | null | undefined): BigQuerySou
       table,
       location: parsed.location,
       ...(nameFilter ? { nameFilter } : {}),
+      ...(parsed.smart === true ? { smart: true } : {}),
       pages: pages.length ? pages : [{ id: "principal", title: "Principal", views: [table] }],
     };
   } catch {
@@ -189,13 +195,19 @@ const EXTRAS_TTL_MS = 10 * 60 * 1000;
 async function loadPlan(
   bq: BigQuery,
   dataset: string,
-  table: string
-): Promise<{ plan: PlatformPlan | null; fields: { name?: string; type?: string }[] }> {
+  table: string,
+  smart = false
+): Promise<{
+  plan: PlatformPlan | null;
+  fields: { name?: string; type?: string }[];
+  isView: boolean;
+}> {
   const [metadata] = await bq.dataset(dataset).table(table).getMetadata();
   const fields = (metadata.schema?.fields || []) as { name?: string; type?: string }[];
-  // Só tabelas de conectores são normalizadas; views feitas à mão continuam como estão.
-  const isTable = String(metadata.type || "TABLE") === "TABLE";
-  let plan = isTable ? planPlatform(fields) : null;
+  const isView = String(metadata.type || "TABLE") !== "TABLE";
+  // Tabelas de conectores são sempre tratadas. Views só nos dashboards novos (smart); as feitas à mão
+  // com outro formato (sem custo, impressões e cliques) continuam como estão.
+  let plan = !isView || smart ? planPlatform(fields) : null;
   // Meta sem colunas de conversão: procura a tabela de ações do mesmo dataset.
   const missingAction =
     plan && plan.platform === "meta" && ACTION_KEYS.some((key) => !plan!.metrics.some((m) => m.key === key));
@@ -208,7 +220,7 @@ async function loadPlan(
       // sem tabela de ações: segue só com custo, impressões e cliques
     }
   }
-  return { plan, fields };
+  return { plan, fields, isView };
 }
 
 async function usedExtras(
@@ -237,18 +249,30 @@ async function usedExtras(
 
 export async function describeBigQueryTable(
   datasetId: string,
-  tableId: string
-): Promise<{ metrics: string[]; dimensions: string[]; platform?: string }> {
+  tableId: string,
+  options: { smart?: boolean } = {}
+): Promise<{ metrics: string[]; dimensions: string[]; platform?: string; active?: string[] }> {
   const dataset = assertIdentifier(datasetId, "Dataset");
   const table = assertIdentifier(tableId, "View");
   const bq = client();
-  const { plan, fields } = await loadPlan(bq, dataset, table);
+  const { plan, fields } = await loadPlan(bq, dataset, table, options.smart);
   if (plan) {
     const extras = await usedExtras(bq, dataset, table, plan);
+    const metrics = platformMetrics(plan, extras);
+    // Métricas que têm valor de verdade (soma diferente de zero): servem para montar o painel certo.
+    let active: string[] = [];
+    try {
+      const { rows } = await loadBigQueryTableDetailed({ dataset, table, smart: options.smart });
+      const base = [...plan.metrics.map((metric) => metric.key), ...plan.derived];
+      active = base.filter((key) => aggregateMetric(rows, key) !== 0);
+    } catch {
+      active = [];
+    }
     return {
-      metrics: platformMetrics(plan, extras),
-      dimensions: platformDimensions(plan),
+      metrics,
+      dimensions: platformDimensions(plan, detailDimensionNames(plan)),
       platform: plan.platform,
+      active,
     };
   }
   const metrics: string[] = [];
@@ -297,6 +321,7 @@ export async function loadBigQueryTableDetailed(source: {
   location?: string;
   fields?: string[];
   nameFilter?: string;
+  smart?: boolean;
 }): Promise<LoadedTable> {
   const projectId = bigQueryProjectId();
   if (!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(projectId)) {
@@ -306,11 +331,12 @@ export async function loadBigQueryTableDetailed(source: {
   const table = assertIdentifier(source.table, "View");
   const fields = [...new Set(source.fields || [])].sort();
   const nameFilter = cleanNameFilter(source.nameFilter);
-  const key = `${projectId}.${dataset}.${table}|${fields.join(",")}|${nameFilter.toUpperCase()}`;
+  const smart = source.smart === true;
+  const key = `${projectId}.${dataset}.${table}|${fields.join(",")}|${nameFilter.toUpperCase()}|${smart ? "s" : ""}`;
   const hit = queryCache.get(key);
   if (hit && Date.now() - hit.at < QUERY_CACHE_TTL_MS) return hit.value;
 
-  const value = runLoad(projectId, dataset, table, fields, nameFilter);
+  const value = runLoad(projectId, dataset, table, fields, nameFilter, smart);
   queryCache.set(key, { at: Date.now(), value });
   value.catch(() => queryCache.delete(key));
   return value;
@@ -321,11 +347,19 @@ async function runLoad(
   dataset: string,
   table: string,
   fields: string[],
-  nameFilter: string
+  nameFilter: string,
+  smart: boolean
 ): Promise<LoadedTable> {
   const bq = client();
   const location = await datasetLocation(bq, dataset);
-  const { plan } = await loadPlan(bq, dataset, table);
+  const { plan, isView } = await loadPlan(bq, dataset, table, smart);
+  // Views de plataforma (dashboards novos) trazem conjunto e anúncio, para os filtros. Em tabelas,
+  // esses níveis só entram quando algum widget os usa.
+  const detail = plan
+    ? isView && smart
+      ? detailDimensionNames(plan)
+      : detailDimensionNames(plan).filter((name) => fields.includes(name))
+    : [];
   // Pede uma linha a mais para saber se o limite cortou dados.
   const query = plan
     ? buildPlatformSql(
@@ -333,7 +367,8 @@ async function runLoad(
         `${projectId}.${dataset}.${table}`,
         fields,
         ROW_LIMIT + 1,
-        Boolean(nameFilter)
+        Boolean(nameFilter),
+        detail
       )
     : `SELECT * FROM \`${projectId}.${dataset}.${table}\` LIMIT ${ROW_LIMIT + 1}`;
   const [all] = await bq.query({

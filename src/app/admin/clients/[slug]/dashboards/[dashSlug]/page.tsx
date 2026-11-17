@@ -84,6 +84,7 @@ export default async function AdminDashboardPage({ params }: Props) {
             </Badge>
             <Badge tone="info">{dashboard.dataSource}</Badge>
             <DashboardSettings
+              header
               id={dashboard.id}
               clientSlug={dashboard.client.slug}
               title={dashboard.title}
@@ -111,7 +112,7 @@ export default async function AdminDashboardPage({ params }: Props) {
                     : "Libera a URL pública somente leitura"
                 }
               >
-                <Button type="submit" variant="secondary" size="sm">
+                <Button type="submit" variant="secondary" className="h-10 px-4">
                   {dashboard.isPublic ? (
                     <>
                       <EyeOff className="h-4 w-4" />
@@ -153,7 +154,6 @@ export default async function AdminDashboardPage({ params }: Props) {
         connectionError={dashboard.dataSource === "bigquery" ? sourceError : ""}
         dataset={source?.dataset || ""}
         table={source?.table || ""}
-        nameFilter={source?.nameFilter || ""}
         pages={source?.pages || []}
       />
 
@@ -169,6 +169,7 @@ export default async function AdminDashboardPage({ params }: Props) {
         rowsByView={dashboard.dataSource === "bigquery" ? rowsByView : undefined}
         pages={source?.pages}
         datasetId={dashboard.dataSource === "bigquery" ? source?.dataset : undefined}
+        smart={source?.smart}
         initialTheme={parseTheme(dashboard.themeJson)}
         initialTemplates={templates}
         initialWidgets={[...dashboard.widgets]

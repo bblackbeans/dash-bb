@@ -1,5 +1,6 @@
 "use client";
 
+import { Pencil } from "lucide-react";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { updateDashboardAction } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,8 @@ type Props = {
   description: string;
   label?: string;
   stayOnList?: boolean;
+  // Botão grande, com ícone, para o topo da página do dashboard.
+  header?: boolean;
 };
 
 export function DashboardSettings({
@@ -26,6 +29,7 @@ export function DashboardSettings({
   description,
   label = "Editar dados",
   stayOnList = false,
+  header = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState(updateDashboardAction, {
@@ -45,7 +49,14 @@ export function DashboardSettings({
 
   return (
     <>
-      <Button type="button" size="sm" variant="secondary" onClick={() => setOpen(true)}>
+      <Button
+        type="button"
+        size={header ? "md" : "sm"}
+        variant="secondary"
+        className={header ? "h-10 px-4" : ""}
+        onClick={() => setOpen(true)}
+      >
+        {header ? <Pencil className="h-4 w-4" aria-hidden /> : null}
         {label}
       </Button>
       <Modal
